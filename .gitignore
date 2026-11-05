@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# CodeArts local state
+.codeartsdoer/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Data and logs
+*.log
+*.sqlite
+*.db
+data/*.csv

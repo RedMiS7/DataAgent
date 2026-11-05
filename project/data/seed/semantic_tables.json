@@ -1,0 +1,52 @@
+[
+  {
+    "table_name": "safe.categories",
+    "summary": "商品类目字典表，记录一级类目名称，用于按类目汇总销售",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.channels",
+    "summary": "订单来源渠道字典表，区分自然搜索、付费搜索、社交、直播等流量来源",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.products",
+    "summary": "商品主表，一行一个 SKU，含价格、成本、所属类目和上下架状态",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.customers",
+    "summary": "客户表，已脱敏，只保留省市和注册时间，不含手机号和详细地址",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.orders",
+    "summary": "订单主表，一行一个订单，含下单时间、支付时间、订单状态、来源渠道和收货省份",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.order_items",
+    "summary": "订单明细表，一行一个订单中的商品，含数量、单价和优惠金额，GMV 由本表计算",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.refunds",
+    "summary": "退款表，一行一次退款申请，含退款金额、原因、申请时间和完成时间",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.shipments",
+    "summary": "物流表，一行一个包裹，含承运商、发货时间、签收时间和收货省份",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.ad_campaigns",
+    "summary": "广告活动表，记录投放渠道、关联商品、日预算和活动起止日期",
+    "schema_version": "v1"
+  },
+  {
+    "table_name": "safe.ad_daily_stats",
+    "summary": "广告日报表，一行是某活动某天的曝光、点击、花费和归因成交金额",
+    "schema_version": "v1"
+  }
+]

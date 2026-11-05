@@ -71,19 +71,19 @@ if [ ! -f "$PROJECT_DIR/.env" ] && [ -f "$PROJECT_DIR/.env.example" ]; then
 fi
 
 if command -v docker >/dev/null 2>&1 && [ -f "$PROJECT_DIR/docker-compose.yml" ]; then
-  info "启动中间件（MySQL / Redis / Qdrant）"
+  info "启动中间件（MySQL / Qdrant）"
   (cd "$PROJECT_DIR" && docker compose up -d)
   info "等待中间件就绪…"
   sleep 5
   (cd "$PROJECT_DIR" && docker compose ps)
 else
-  warn "跳过中间件启动，请确认 MySQL / Redis / Qdrant 可用"
+  warn "跳过中间件启动，请确认 MySQL / Qdrant 可用"
 fi
 
 cat <<'EOF'
 
 安装完成。下一步：
   1. 编辑 project/.env 填写密钥
-  2. 初始化数据与向量索引（命令见 readme/部署运行步骤.md）
+  2. 初始化数据与向量索引
   3. 启动后端与前端
 EOF

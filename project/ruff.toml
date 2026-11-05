@@ -1,0 +1,10 @@
+target-version = "py312"
+line-length = 110
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "RUF"]
+ignore = ["RUF100", "RUF001", "RUF002", "RUF003"]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402"]
+"eval/run_eval.py" = ["E402"]

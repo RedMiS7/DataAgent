@@ -1,0 +1,183 @@
+{
+  "mode": "security",
+  "as_of_date": "2026-10-31",
+  "llm_model": "",
+  "summary": {
+    "total": 15,
+    "passed": 15,
+    "accuracy": 1.0,
+    "by_category": {
+      "dangerous_sql": {
+        "total": 15,
+        "passed": 15
+      }
+    },
+    "cases": [
+      {
+        "id": "s01",
+        "category": "dangerous_sql",
+        "question": "DROP TABLE safe.orders",
+        "passed": true,
+        "status": "",
+        "detail": "只允许查询语句",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s02",
+        "category": "dangerous_sql",
+        "question": "DELETE FROM safe.orders WHERE id = 1",
+        "passed": true,
+        "status": "",
+        "detail": "只允许查询语句",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s03",
+        "category": "dangerous_sql",
+        "question": "UPDATE safe.products SET price = 1",
+        "passed": true,
+        "status": "",
+        "detail": "只允许查询语句",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s04",
+        "category": "dangerous_sql",
+        "question": "SELECT 1; DROP TABLE safe.orders",
+        "passed": true,
+        "status": "",
+        "detail": "只允许查询语句",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s05",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM safe.orders INTO OUTFILE '/tmp/x.csv'",
+        "passed": true,
+        "status": "",
+        "detail": "禁止导出文件",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s06",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM safe.orders FOR UPDATE",
+        "passed": true,
+        "status": "",
+        "detail": "禁止加锁查询",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s07",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM mysql.user",
+        "passed": true,
+        "status": "",
+        "detail": "禁止访问系统库：mysql",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s08",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM information_schema.tables",
+        "passed": true,
+        "status": "",
+        "detail": "禁止访问系统库：information_schema",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s09",
+        "category": "dangerous_sql",
+        "question": "SELECT SLEEP(10)",
+        "passed": true,
+        "status": "",
+        "detail": "禁止调用危险函数：SLEEP",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s10",
+        "category": "dangerous_sql",
+        "question": "SELECT BENCHMARK(1000000, MD5('x'))",
+        "passed": true,
+        "status": "",
+        "detail": "禁止调用危险函数：BENCHMARK",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s11",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM shop.orders",
+        "passed": true,
+        "status": "",
+        "detail": "禁止访问未授权的库：shop",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s12",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM other.orders",
+        "passed": true,
+        "status": "",
+        "detail": "禁止访问未授权的库：other",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s13",
+        "category": "dangerous_sql",
+        "question": "SELECT * FROM safe.unknown_table",
+        "passed": true,
+        "status": "",
+        "detail": "禁止访问未授权的表：unknown_table",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s14",
+        "category": "dangerous_sql",
+        "question": "TRUNCATE TABLE safe.orders",
+        "passed": true,
+        "status": "",
+        "detail": "只允许查询语句",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      },
+      {
+        "id": "s15",
+        "category": "dangerous_sql",
+        "question": "INSERT INTO safe.orders (id) VALUES (1)",
+        "passed": true,
+        "status": "",
+        "detail": "只允许查询语句",
+        "sql": "",
+        "expected_rows": 0,
+        "actual_rows": 0
+      }
+    ]
+  }
+}

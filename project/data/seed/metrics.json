@@ -1,0 +1,74 @@
+[
+  {
+    "name": "GMV",
+    "aliases": "成交总额,销售额,营业额,卖了多少钱,营收",
+    "definition": "支付成功且未取消订单的商品金额合计，不含运费，按支付时间归属",
+    "formula": "SUM(oi.quantity * oi.unit_price - oi.discount_amount) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= :start AND o.paid_at < :end",
+    "related_tables": "safe.orders,safe.order_items",
+    "enabled": 1
+  },
+  {
+    "name": "订单数",
+    "aliases": "成交单量,订单量,多少单,卖掉多少单",
+    "definition": "支付成功且未取消的订单数量，按支付时间归属，一个订单算一单",
+    "formula": "COUNT(DISTINCT o.id) FROM safe.orders o WHERE o.status <> 'cancelled' AND o.paid_at >= :start AND o.paid_at < :end",
+    "related_tables": "safe.orders",
+    "enabled": 1
+  },
+  {
+    "name": "客单价",
+    "aliases": "平均订单金额,每单金额,AOV",
+    "definition": "GMV 除以订单数，反映每笔订单的平均成交金额",
+    "formula": "GMV / 订单数，时间范围与口径同 GMV",
+    "related_tables": "safe.orders,safe.order_items",
+    "enabled": 1
+  },
+  {
+    "name": "退款金额",
+    "aliases": "退货金额,退款总额,退了多少钱",
+    "definition": "退款完成状态下的退款金额合计，按退款完成时间归属",
+    "formula": "SUM(r.refund_amount) FROM safe.refunds r WHERE r.status = 'completed' AND r.completed_at >= :start AND r.completed_at < :end",
+    "related_tables": "safe.refunds",
+    "enabled": 1
+  },
+  {
+    "name": "退货率",
+    "aliases": "退款率,退货比例,退了多少",
+    "definition": "统计期内退款金额合计除以同期 GMV，按退款完成时间归属退款，按支付时间归属 GMV",
+    "formula": "退款金额 / GMV",
+    "related_tables": "safe.refunds,safe.orders,safe.order_items",
+    "enabled": 1
+  },
+  {
+    "name": "广告花费",
+    "aliases": "投放费用,广告费,推广花费,推广费用",
+    "definition": "广告日报中的花费合计，按统计日期归属",
+    "formula": "SUM(ads.spend) FROM safe.ad_daily_stats ads WHERE ads.stat_date >= :start_date AND ads.stat_date < :end_date",
+    "related_tables": "safe.ad_daily_stats",
+    "enabled": 1
+  },
+  {
+    "name": "ROI",
+    "aliases": "投入产出比,投放回报,投产比",
+    "definition": "广告归因成交金额除以广告花费，按统计日期归属",
+    "formula": "SUM(ads.attributed_gmv) / NULLIF(SUM(ads.spend), 0) FROM safe.ad_daily_stats ads WHERE ads.stat_date >= :start_date AND ads.stat_date < :end_date",
+    "related_tables": "safe.ad_daily_stats",
+    "enabled": 1
+  },
+  {
+    "name": "发货时效",
+    "aliases": "物流时效,发货速度,几天到,签收时长",
+    "definition": "从订单支付到物流签收的平均小时数，只统计已签收的包裹",
+    "formula": "AVG(TIMESTAMPDIFF(HOUR, o.paid_at, s.delivered_at)) FROM safe.orders o JOIN safe.shipments s ON s.order_id = o.id WHERE s.delivered_at IS NOT NULL AND o.paid_at >= :start AND o.paid_at < :end",
+    "related_tables": "safe.orders,safe.shipments",
+    "enabled": 1
+  },
+  {
+    "name": "商品销量",
+    "aliases": "卖了多少件,件数,销量",
+    "definition": "订单明细中购买件数的合计，只统计支付成功且未取消的订单",
+    "formula": "SUM(oi.quantity) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= :start AND o.paid_at < :end",
+    "related_tables": "safe.orders,safe.order_items",
+    "enabled": 1
+  }
+]

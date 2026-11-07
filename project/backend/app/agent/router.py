@@ -14,6 +14,7 @@ from agentscope.model import ChatModelBase
 
 from ..api.schemas import AskMode, HistoryMessage
 from .answer import strip_citations
+from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +95,12 @@ def parse_route(text: str) -> tuple[AskMode, str]:
     return route, reason
 
 
-async def _ask_model(model: ChatModelBase, content: str) -> str:
+async def _ask_model(model: ChatModelBase, content: str, trace: CallTrace | None = None) -> str:
     agent = Agent(
         name="router",
         system_prompt=ROUTER_PROMPT,
         model=model,
+        middlewares=trace.middlewares() if trace else None,
         # By default the agent swallows a cancel and replies "I notice the
         # interruption...", which would hide a timeout as an unreadable reply.
         react_config=ReActConfig(interruption_raise_cancelled_error=True),
@@ -111,7 +113,8 @@ async def _ask_model(model: ChatModelBase, content: str) -> str:
 
 def route_question(model: ChatModelBase, question: str, history: list[HistoryMessage],
                    log_tag: str = "-",
-                   timeout: float = ROUTER_TIMEOUT_SECONDS) -> RouteDecision:
+                   timeout: float = ROUTER_TIMEOUT_SECONDS,
+                   trace: CallTrace | None = None) -> RouteDecision:
     """Ask the model for a mode; any failure falls back to query mode and is logged.
 
     The call runs in its own event loop, so pass a model no other loop has used.
@@ -119,7 +122,7 @@ def route_question(model: ChatModelBase, question: str, history: list[HistoryMes
     content = build_router_input(question, history)
     text = ""
     try:
-        text = asyncio.run(asyncio.wait_for(_ask_model(model, content), timeout))
+        text = asyncio.run(asyncio.wait_for(_ask_model(model, content, trace), timeout))
         route, reason = parse_route(text)
     except TimeoutError:
         logger.warning("[%s] 路由超时（%.0f 秒），改用查询模式", log_tag, timeout)

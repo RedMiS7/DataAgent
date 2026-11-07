@@ -4,6 +4,7 @@ import argparse
 import sys
 import time
 
+from ..agent import session
 from ..agent.scope_model import build_chat_model, probe_chat_model
 from ..config import get_settings
 from ..db.engine import app_connection, business_connection
@@ -92,11 +93,46 @@ def cmd_status() -> int:
     return 0
 
 
+def format_trace(rows: list[dict]) -> list[str]:
+    """One line per call, in the order the calls started."""
+    lines = []
+    for row in rows:
+        tokens = (f" tokens={row['input_tokens']}/{row['output_tokens']}"
+                  if row["kind"] == "model" else "")
+        state = "" if row["ok"] else " 失败"
+        detail = f" {row['detail']}" if row["detail"] else ""
+        lines.append(f"{row['seq']:>3}  +{row['started_ms'] / 1000:6.1f}s  "
+                     f"{row['duration_ms'] / 1000:5.1f}s  {row['agent']:<12} {row['kind']:<5} "
+                     f"{row['name']}{tokens}{state}{detail}")
+    return lines
+
+
+def cmd_show_trace(log_id: int | None) -> int:
+    if log_id is None:
+        print("用法：show_trace --log-id <query_logs 的 id>")
+        return 2
+    with app_connection(get_settings()) as conn:
+        rows = session.load_call_traces(conn, log_id)
+    if not rows:
+        print(f"log_id={log_id} 没有调用记录")
+        return 1
+    for line in format_trace(rows):
+        print(line)
+    models = [row for row in rows if row["kind"] == "model"]
+    print(f"模型 {len(models)} 次，tokens {sum(row['input_tokens'] for row in models)}"
+          f"/{sum(row['output_tokens'] for row in models)}，工具 {len(rows) - len(models)} 次")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.semantic.cli")
     parser.add_argument("command",
-                        choices=["init_semantic", "build_index", "status", "check_models"])
+                        choices=["init_semantic", "build_index", "status", "check_models",
+                                 "show_trace"])
+    parser.add_argument("--log-id", type=int, help="show_trace 要查看的 query_logs id")
     args = parser.parse_args(argv)
+    if args.command == "show_trace":
+        return cmd_show_trace(args.log_id)
     if args.command == "init_semantic":
         return cmd_init_semantic()
     if args.command == "build_index":

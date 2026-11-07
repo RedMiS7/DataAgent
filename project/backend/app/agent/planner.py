@@ -165,8 +165,10 @@ def _user(content: str) -> Msg:
     return Msg(name="user", content=[TextBlock(text=content)], role="user")
 
 
-async def _ask(model: ChatModelBase, name: str, prompt: str, content: str) -> str:
+async def _ask(model: ChatModelBase, context: AgentRunContext, name: str, prompt: str,
+               content: str) -> str:
     agent = Agent(name=name, system_prompt=prompt, model=model,
+                  middlewares=context.trace.middlewares(),
                   # By default the agent swallows a cancel and replies "I notice the
                   # interruption...", which would hide a timeout as a normal reply.
                   react_config=ReActConfig(interruption_raise_cancelled_error=True),
@@ -227,7 +229,7 @@ async def _make_plan(model: ChatModelBase, context: AgentRunContext,
     tag = context.log_tag
     text = ""
     try:
-        text = await asyncio.wait_for(_ask(model, "planner", PLAN_PROMPT, _plan_input(task)),
+        text = await asyncio.wait_for(_ask(model, context, "planner", PLAN_PROMPT, _plan_input(task)),
                                       PLAN_TIMEOUT_SECONDS)
         goals = parse_steps(text, MAX_PLAN_STEPS)
         if not goals:
@@ -250,7 +252,7 @@ async def _supplement(model: ChatModelBase, context: AgentRunContext, task: Anal
     text = ""
     try:
         text = await asyncio.wait_for(
-            _ask(model, "supplement", SUPPLEMENT_PROMPT,
+            _ask(model, context, "supplement", SUPPLEMENT_PROMPT,
                  _report_input(task, context, steps, SUPPLEMENT_ROWS)),
             SUPPLEMENT_TIMEOUT_SECONDS)
         return parse_steps(text, MAX_SUPPLEMENT_STEPS)
@@ -268,7 +270,7 @@ async def _summarize(model: ChatModelBase, context: AgentRunContext, task: Analy
     tag = context.log_tag
     try:
         return await asyncio.wait_for(
-            _ask(model, "summary", SUMMARY_PROMPT,
+            _ask(model, context, "summary", SUMMARY_PROMPT,
                  _report_input(task, context, steps, SUMMARY_ROWS)),
             SUMMARY_TIMEOUT_SECONDS)
     except TimeoutError:
@@ -291,6 +293,7 @@ async def _run_step(model: ChatModelBase, context: AgentRunContext, task: Analys
         system_prompt=task.step_prompt,
         model=model,
         toolkit=build_toolkit(context, step.id, STEP_MAX_QUERIES),
+        middlewares=context.trace.middlewares(),
         react_config=ReActConfig(max_iters=task.step_max_iters),
         injection_config=InjectionConfig(inject_runtime_state=False),
     )

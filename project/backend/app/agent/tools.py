@@ -18,6 +18,7 @@ from ..safety.validator import SQLValidationError, validate_and_limit
 from ..semantic import repository
 from ..semantic.models import RetrievalBundle, SchemaItem
 from ..semantic.retriever import SemanticRetriever
+from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class AgentRunContext:
     reserved: int = 0
     attempts: int = 0
     errors: list[str] = field(default_factory=list)
+    trace: CallTrace = field(default_factory=CallTrace)
     declined: str = ""
 
 

@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 
 from . import demo_data
+from .agent import session
 from .agent.scope_model import build_chat_model, probe_chat_model
 from .api.schemas import SetupStatus, SetupStep
 from .config import Settings
@@ -165,6 +166,9 @@ class Bootstrapper:
         engine = app_engine(self.settings)
         if not _wait_for(lambda: ping(engine), DATABASE_WAIT_SECONDS):
             raise RuntimeError(f"连不上 MySQL：{self.settings.mysql_host}:{self.settings.mysql_port}")
+        # Databases created before call tracing lack this table.
+        with app_connection(self.settings) as conn:
+            session.ensure_trace_table(conn)
         return "done", ""
 
     def _sync_semantic(self) -> tuple[str, str]:

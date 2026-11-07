@@ -196,6 +196,7 @@ def ask(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
     monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
+    monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
 
     def run(question: str, script: list[list[Any]], mode: str = "query",
             history: list[HistoryMessage] | None = None, emit: Any = None,
@@ -348,6 +349,7 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
     monkeypatch.setattr(session, "save_query_log", save_log)
+    monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
 
     def run(script: list[list[Any]], mode: str = "analysis"):
         # The planner reads the first reply; an unreadable plan runs the single agent.

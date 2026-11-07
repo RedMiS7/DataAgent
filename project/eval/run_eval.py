@@ -80,8 +80,12 @@ def main() -> int:
         _print_report("分析评测" + ("（不用计划）" if args.no_plan else ""), report)
         durations = sorted(case.duration_ms for case in report.cases)
         if durations:
-            print(f"  耗时：平均 {sum(durations) / len(durations) / 1000:.1f} 秒，"
+            count = len(report.cases)
+            print(f"  耗时：平均 {sum(durations) / count / 1000:.1f} 秒，"
                   f"最长 {durations[-1] / 1000:.1f} 秒")
+            print(f"  模型调用：平均 {sum(c.model_calls for c in report.cases) / count:.1f} 次，"
+                  f"tokens 平均 {sum(c.input_tokens for c in report.cases) / count:.0f}"
+                  f"/{sum(c.output_tokens for c in report.cases) / count:.0f}")
         reports.append(report)
     if args.mode in ("routing", "all"):
         report = evaluate_routing(settings, load_routing_cases(), args.limit)

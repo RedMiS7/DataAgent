@@ -13,6 +13,7 @@ import { formatNumber } from "../../lib/chart";
 import type { AssistantMessage } from "../../lib/conversations";
 import { downloadCsv } from "../../lib/csv";
 import { groupResults } from "../../lib/plan";
+import { usageDetail, usageLabel } from "../../lib/usage";
 import { suggestsAnalysis } from "../../lib/modes";
 import { parseAnalysisSummary, type SummaryPart } from "../../lib/summary";
 import type { AnswerPayload, PlanStep, QueryResult, TableBlock } from "../../types";
@@ -236,6 +237,11 @@ function Meta({ answer }: { answer: AnswerPayload }) {
       {answer.tables_used.length > 0 && <span>{answer.tables_used.join("、")}</span>}
       {answer.retries > 1 && <span>尝试 {answer.retries} 次</span>}
       {answer.model && <span>{answer.model}</span>}
+      {answer.usage && usageLabel(answer.usage) && (
+        <Tooltip title={usageDetail(answer.usage)}>
+          <span>{usageLabel(answer.usage)}</span>
+        </Tooltip>
+      )}
       {answer.summary_source === "template" && <span>模板结论</span>}
       {answer.degraded && <span className="warn">检索已降级</span>}
     </div>

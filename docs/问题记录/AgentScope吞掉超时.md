@@ -48,6 +48,10 @@ react_config=ReActConfig(interruption_raise_cancelled_error=True)
 
 同时放宽了时限：规划和补查由 10 秒改为 20 秒，汇总由 30 秒改为 60 秒，路由由 8 秒改为 15 秒。
 
+## 模型那一层也一样
+
+做调用追踪时又发现：AgentScope 的模型封装（`model/_base.py`）也会捕获 `asyncio.CancelledError`，返回一个空的 `ChatResponse`，`finished_reason` 是 `interrupted`，不会抛异常。所以在 `on_model_call` 中间件里只靠捕获异常，会把超时的调用记成成功。现在中间件会检查 `finished_reason`，是 `interrupted` 就记为失败。
+
 ## 测试要注意
 
 原来的超时测试是在调用 Agent 之前 `sleep`，取消发生在 AgentScope 外面，所以测不出这个问题。改为让测试模型本身变慢后，去掉修复，规划、补查、汇总、路由四个超时测试都会失败；路由会返回“判断结果无法解析”，而不是“判断超时”。

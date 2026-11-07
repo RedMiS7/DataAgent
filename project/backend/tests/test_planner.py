@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from agentscope.message import TextBlock, ToolCallBlock
-from agentscope.model import ChatResponse
+from agentscope.model import ChatResponse, ChatUsage
 from app.agent import pipeline, planner, session, tools
 from app.agent.pipeline import ANALYSIS_ANSWER_RULE, AskPipeline
 from app.agent.planner import PlanParseError, PlanStep, parse_steps, results_digest
@@ -99,7 +99,8 @@ class RoleModel(ScriptedChatModel):
             raise AssertionError(f"没有为 {role} 准备回复")
         index = min(self.used[role], len(script) - 1)
         self.used[role] += 1
-        return ChatResponse(content=list(script[index]), is_last=True)
+        return ChatResponse(content=list(script[index]), is_last=True,
+                            usage=ChatUsage(input_tokens=100, output_tokens=10, time=0.0))
 
 
 class StubRetriever:
@@ -125,11 +126,16 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
     def save_log(conn: object, session_id: str, question: str, rewritten: str, sql: str,
                  *rest: Any) -> int:
         saved["log_sql"] = sql
+        saved["tokens"] = rest[-3:-1]
         return 1
+
+    def save_traces(conn: object, log_id: int, records: list[Any]) -> None:
+        saved["traces"] = records
 
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
     monkeypatch.setattr(session, "save_query_log", save_log)
+    monkeypatch.setattr(session, "save_call_traces", save_traces)
 
     def run(scripts: dict[str, list[list[Any]]], delay: float | dict[str, float] = 0.0):
         model = RoleModel(scripts, delay)
@@ -259,6 +265,21 @@ def test_a_plan_runs_each_step_then_summarizes(analyze) -> None:
     assert by_step(answer) == {1: ["整体"], 2: ["类目拆分"]}
     assert saved["log_sql"] == ""
     assert saved["model"].calls == 7
+
+
+def test_every_agent_of_a_plan_is_traced(analyze) -> None:
+    answer, saved = analyze(two_steps())
+    models = [item for item in saved["traces"] if item.kind == "model"]
+    assert sorted({item.agent for item in models}) == [
+        "planner", "step_1", "step_2", "summary", "supplement"]
+    assert sorted((item.agent, item.name) for item in saved["traces"] if item.kind == "tool") == [
+        ("step_1", "run_sql"), ("step_2", "run_sql")]
+    assert answer.usage is not None
+    assert answer.usage.model_calls == len(models) == saved["model"].calls == 7
+    assert saved["tokens"] == (700, 70)
+    assert (answer.usage.input_tokens, answer.usage.output_tokens) == (700, 70)
+    starts = [item.started_ms for item in saved["traces"]]
+    assert starts == sorted(starts)
 
 
 def test_steps_run_at_the_same_time(analyze) -> None:

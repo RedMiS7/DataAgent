@@ -50,7 +50,7 @@ def run_once(runner: Bootstrapper) -> None:
 @pytest.fixture
 def offline(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     """Replaces every database touch and records what setup does."""
-    calls: dict[str, list[Any]] = {"generate": [], "sync": [], "index": []}
+    calls: dict[str, list[Any]] = {"generate": [], "sync": [], "index": [], "tables": []}
 
     @contextmanager
     def no_connection(settings: Settings):
@@ -60,6 +60,8 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     monkeypatch.setattr(bootstrap, "ping", lambda engine: True)
     monkeypatch.setattr(bootstrap, "app_connection", no_connection)
     monkeypatch.setattr(bootstrap, "business_connection", no_connection)
+    monkeypatch.setattr(bootstrap.session, "ensure_trace_table",
+                        lambda conn: calls["tables"].append("call_traces"))
     monkeypatch.setattr(bootstrap.repository, "load_seed", lambda path: "seed")
     monkeypatch.setattr(bootstrap.repository, "sync_seed",
                         lambda conn, bundle: calls["sync"].append(bundle))
@@ -200,3 +202,9 @@ def test_bad_key_error_hides_the_key(tmp_path: Path, monkeypatch: pytest.MonkeyP
         validate_keys(make_settings(tmp_path), "sk-bad", "")
     assert "sk-bad" not in str(error.value)
     assert "大模型 Key 验证失败" in str(error.value)
+
+
+def test_setup_makes_sure_the_trace_table_exists(tmp_path: Path, offline: dict) -> None:
+    runner = Bootstrapper(make_settings(tmp_path), StubRetriever())  # type: ignore[arg-type]
+    runner._connect_database()
+    assert offline["tables"] == ["call_traces"]

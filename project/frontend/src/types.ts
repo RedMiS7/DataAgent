@@ -85,6 +85,15 @@ export interface RouteInfo {
   source: "llm" | "fallback";
 }
 
+export interface CallUsage {
+  model_calls: number;
+  tool_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  /** Summed over calls; steps running at once make it exceed the answer's duration. */
+  model_ms: number;
+}
+
 export interface AnswerPayload {
   question: string;
   rewritten_question: string;
@@ -109,6 +118,8 @@ export interface AnswerPayload {
   route?: RouteInfo | null;
   /** The steps of a planned analysis; empty or missing otherwise. */
   plan?: PlanStep[];
+  /** Missing on answers saved before call tracing. */
+  usage?: CallUsage | null;
   /** Not sent by the backend yet; shown only when present. */
   model?: string;
 }

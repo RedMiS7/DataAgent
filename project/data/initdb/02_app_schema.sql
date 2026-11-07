@@ -102,3 +102,21 @@ CREATE TABLE IF NOT EXISTS qa_cases (
     reviewed_at     DATETIME NULL,
     KEY idx_qa_cases_status (status)
 ) ENGINE=InnoDB;
+
+-- One row per model or tool call of a question in query_logs.
+CREATE TABLE IF NOT EXISTS call_traces (
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+    log_id        BIGINT NOT NULL,
+    seq           INT NOT NULL,
+    agent         VARCHAR(64) NOT NULL,
+    kind          VARCHAR(16) NOT NULL,
+    name          VARCHAR(64) NOT NULL,
+    started_ms    INT NOT NULL,
+    duration_ms   INT NOT NULL,
+    input_tokens  INT NOT NULL DEFAULT 0,
+    output_tokens INT NOT NULL DEFAULT 0,
+    ok            TINYINT(1) NOT NULL DEFAULT 1,
+    detail        VARCHAR(255) NOT NULL DEFAULT '',
+    created_at    DATETIME NOT NULL,
+    KEY idx_call_traces_log (log_id)
+) ENGINE=InnoDB;

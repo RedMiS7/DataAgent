@@ -15,6 +15,7 @@ from agentscope.message import Msg, TextBlock
 from ..api.schemas import (
     AnswerPayload,
     AskMode,
+    CallUsage,
     HistoryMessage,
     PlanStepInfo,
     QueryResult,
@@ -49,6 +50,7 @@ from .planner import STEP_ANSWER_RULE, AnalysisTask, PlanStep, run_analysis
 from .router import route_question
 from .scope_model import build_chat_model
 from .tools import ANALYSIS_MAX_QUERIES, AgentRunContext, build_toolkit
+from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +232,7 @@ class AskPipeline:
             emit: EventHandler | None = None, mode: RequestMode = "query",
             history: list[HistoryMessage] | None = None) -> AnswerPayload:
         emit = emit or _noop
-        started = time.perf_counter()
+        trace = CallTrace()
         question = question.strip()
         tag = session.log_tag(session_id)
         client_history = history or []
@@ -260,7 +262,7 @@ class AskPipeline:
             if refusal:
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
                                       None, time_range, bundle, 0, "refused",
-                                      refusal, "", started)
+                                      refusal, "", trace)
 
             model = build_chat_model(self.settings)
             if model is None:
@@ -268,7 +270,7 @@ class AskPipeline:
                            "或使用 LLM_PROVIDER=deepseek 内置预设。")
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
                                       None, time_range, bundle, 0, "error",
-                                      "", message, started)
+                                      "", message, trace)
 
             route: RouteInfo | None = None
             if mode == "auto":
@@ -276,7 +278,8 @@ class AskPipeline:
                 # A model's HTTP connections belong to the event loop of its first call,
                 # and each asyncio.run starts a new loop, so the router needs its own model.
                 router_model = build_chat_model(self.settings) or model
-                decision = route_question(router_model, question, client_history, tag)
+                decision = route_question(router_model, question, client_history, tag,
+                                          trace=trace)
                 route = RouteInfo(requested="auto", chosen=decision.route,
                                   reason=decision.reason, source=decision.source)
                 label = "分析" if decision.route == "analysis" else "查询"
@@ -287,7 +290,8 @@ class AskPipeline:
 
             emit("status", {"step": "generating", "message": "Agent 正在规划并执行查询"})
             context = AgentRunContext(settings=self.settings, retriever=self.retriever,
-                                      emit=emit, bundle=bundle, mode=mode, log_tag=tag)
+                                      emit=emit, bundle=bundle, mode=mode, log_tag=tag,
+                                      trace=trace)
             query_iters = max(4, self.settings.sql_max_retry + 4)
             max_iters = ANALYSIS_MAX_ITERS if mode == "analysis" else query_iters
             agent = Agent(
@@ -296,6 +300,7 @@ class AskPipeline:
                 model=model,
                 toolkit=build_toolkit(context),
                 react_config=ReActConfig(max_iters=max_iters),
+                middlewares=trace.middlewares(),
                 # Runtime state carries the real clock, which conflicts with as_of_date.
                 injection_config=InjectionConfig(inject_runtime_state=False),
             )
@@ -321,13 +326,13 @@ class AskPipeline:
                 failed = select_execution(context.executions, "")
                 return self._finalize(conn, emit, session_id, question, rewritten,
                                       failed.sql if failed else "", failed, time_range, bundle,
-                                      context.attempts, "error", "", message, started,
+                                      context.attempts, "error", "", message, trace,
                                       mode=mode, route=route)
 
             if context.declined:
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
                                       None, time_range, bundle, context.attempts, "refused",
-                                      context.declined, "", started, mode=mode,
+                                      context.declined, "", trace, mode=mode,
                                       route=route)
 
             execution = select_execution(context.executions, text)
@@ -335,19 +340,19 @@ class AskPipeline:
                 detail = context.errors[-1] if context.errors else "模型没有调用 run_sql 工具"
                 return self._finalize(conn, emit, session_id, question, rewritten,
                                       "", None, time_range, bundle,
-                                      context.attempts, "error", "", detail, started,
+                                      context.attempts, "error", "", detail, trace,
                                       mode=mode, route=route)
 
             if mode == "analysis":
                 return self._finish_analysis(conn, emit, session_id, question, rewritten,
-                                             time_range, bundle, context, text, started, route,
+                                             time_range, bundle, context, text, route,
                                              steps)
 
             status = "ok" if execution.rows else "empty"
             summary, summary_source = self._summarize(text, execution, emit, tag)
             return self._finalize(conn, emit, session_id, question, rewritten,
                                   execution.sql, execution, time_range, bundle,
-                                  context.attempts, status, summary, "", started,
+                                  context.attempts, status, summary, "", trace,
                                   summary_source, route=route)
 
     def _refusal(self, question: str) -> str:
@@ -424,7 +429,7 @@ class AskPipeline:
 
     def _finish_analysis(self, conn, emit: EventHandler, session_id: str, question: str,
                          rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
-                         context: AgentRunContext, text: str, started: float,
+                         context: AgentRunContext, text: str,
                          route: RouteInfo | None = None,
                          steps: list[PlanStep] | None = None) -> AnswerPayload:
         executions = context.executions
@@ -462,20 +467,21 @@ class AskPipeline:
 
         status = "ok" if primary.rows else "empty"
         return self._finalize(conn, emit, session_id, question, rewritten, primary.sql, primary,
-                              time_range, bundle, context.attempts, status, summary, "", started,
+                              time_range, bundle, context.attempts, status, summary, "",
+                              context.trace,
                               source, mode="analysis", results=results, warnings=warnings,
                               route=route, plan=plan)
 
     def _finalize(self, conn, emit: EventHandler, session_id: str, question: str,
                   rewritten: str, sql_text: str, result: ExecutionResult | None,
                   time_range: TimeRange, bundle: RetrievalBundle, retries: int,
-                  status: str, summary: str, error: str, started: float,
+                  status: str, summary: str, error: str, trace: CallTrace,
                   summary_source: str = "template", *, mode: AskMode = "query",
                   results: list[QueryResult] | None = None,
                   warnings: list[str] | None = None,
                   route: RouteInfo | None = None,
                   plan: list[PlanStepInfo] | None = None) -> AnswerPayload:
-        duration_ms = int((time.perf_counter() - started) * 1000)
+        duration_ms = int((time.perf_counter() - trace.started) * 1000)
         results = results or []
         warnings = list(warnings or [])
         used_tables = _table_names(sql_text).union(*(_table_names(item.sql) for item in results))
@@ -498,7 +504,8 @@ class AskPipeline:
         log_id = session.save_query_log(
             conn, session_id, question, rewritten, log_sql, status, retries, duration_ms,
             len(result.rows) if result else 0, self.settings.llm_model,
-            0, 0, error)
+            trace.input_tokens, trace.output_tokens, error)
+        session.save_call_traces(conn, log_id, trace.ordered())
 
         payload = AnswerPayload(
             question=question,
@@ -521,15 +528,18 @@ class AskPipeline:
             results=results,
             route=route,
             plan=plan or [],
+            usage=CallUsage(**trace.usage()),
         )
 
         tag = session.log_tag(session_id)
         if status in ("blocked", "error"):
-            logger.error("[%s] 问答失败 status=%s %dms 尝试 %d 次 error=%s", tag, status,
-                         duration_ms, retries, summary or error)
+            logger.error("[%s] 问答失败 status=%s %dms 尝试 %d 次 模型 %d 次 error=%s", tag,
+                         status, duration_ms, retries, trace.usage()["model_calls"], summary or error)
             emit("error", {"message": summary or error, "status": status})
         else:
-            logger.info("[%s] 问答结束 status=%s %dms 尝试 %d 次", tag, status, duration_ms, retries)
+            logger.info("[%s] 问答结束 status=%s %dms 尝试 %d 次 模型 %d 次 tokens=%d/%d", tag,
+                        status, duration_ms, retries, trace.usage()["model_calls"],
+                        trace.input_tokens, trace.output_tokens)
             emit("answer", payload.model_dump())
         return payload
 

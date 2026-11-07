@@ -33,6 +33,9 @@ class CaseResult:
     actual_rows: int = 0
     duration_ms: int = 0
     summary: str = ""
+    model_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass(slots=True)
@@ -182,11 +185,15 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             passed = answer.status == "ok" and compare_rows(expected_rows, actual_rows)
             detail = f"status={answer.status}, expected={len(expected_rows)}, actual={len(actual_rows)}"
 
+        usage = answer.usage
         report.add(CaseResult(
             id=question["id"], category=category, question=question["question"],
             passed=passed, status=answer.status, detail=detail, sql=answer.sql,
             expected_rows=len(expected_rows),
             actual_rows=len(answer.table.rows) if answer.table else 0,
+            model_calls=usage.model_calls if usage else 0,
+            input_tokens=usage.input_tokens if usage else 0,
+            output_tokens=usage.output_tokens if usage else 0,
         ))
     return report
 
@@ -212,10 +219,15 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
                                   mode="analysis", history=history)
             duration_ms = int((time.perf_counter() - started) * 1000)
             passed, detail = score_analysis(answer, question)
+            usage = answer.usage
+            calls = usage.model_calls if usage else 0
             report.add(CaseResult(
                 id=question["id"], category="analysis", question=question["question"],
-                passed=passed, status=answer.status, detail=f"{detail}, {duration_ms}ms",
-                duration_ms=duration_ms, summary=answer.summary,
+                passed=passed, status=answer.status,
+                detail=f"{detail}, {duration_ms}ms, 模型 {calls} 次",
+                duration_ms=duration_ms, summary=answer.summary, model_calls=calls,
+                input_tokens=usage.input_tokens if usage else 0,
+                output_tokens=usage.output_tokens if usage else 0,
             ))
     return report
 

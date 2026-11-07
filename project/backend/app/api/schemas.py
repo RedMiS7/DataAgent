@@ -68,6 +68,17 @@ class PlanStepInfo(BaseModel):
     status: Literal["pending", "running", "done", "failed"]
 
 
+class CallUsage(BaseModel):
+    """Model and tool calls behind one answer."""
+
+    model_calls: int = 0
+    tool_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    # Summed over calls; steps running at once make it exceed the answer's duration.
+    model_ms: int = 0
+
+
 class AnswerPayload(BaseModel):
     question: str
     rewritten_question: str = ""
@@ -90,6 +101,7 @@ class AnswerPayload(BaseModel):
     route: RouteInfo | None = None
     # The steps of a planned analysis; empty otherwise.
     plan: list[PlanStepInfo] = Field(default_factory=list)
+    usage: CallUsage | None = None
 
 
 class AskRequest(BaseModel):

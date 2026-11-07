@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+DEFAULT_EXPRESSION = "默认"
+
 
 @dataclass(slots=True)
 class TimeRange:
@@ -11,6 +13,11 @@ class TimeRange:
     end: date
     label: str
     expression: str = ""
+
+    @property
+    def is_default(self) -> bool:
+        """True when the text named no time and the 30-day default applied."""
+        return self.expression == DEFAULT_EXPRESSION
 
     def as_dict(self) -> dict[str, str]:
         return {
@@ -84,7 +91,7 @@ def parse_time_range(question: str, as_of: date) -> TimeRange:
         return TimeRange(start, end, f"最近{months}个月", match.group(0))
 
     start = as_of - timedelta(days=29)
-    return TimeRange(start, end, "最近30天", "默认")
+    return TimeRange(start, end, "最近30天", DEFAULT_EXPRESSION)
 
 
 def range_as_sql_params(value: TimeRange) -> dict[str, str]:

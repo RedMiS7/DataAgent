@@ -111,7 +111,7 @@ def test_run_sql_tool_blocks_write() -> None:
     tool = _make_run_sql(context)
     result = tool("DELETE FROM safe.orders")
     assert "SQL 校验失败" in result
-    assert context.execution is None
+    assert context.executions == []
     assert context.errors
 
 

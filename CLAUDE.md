@@ -30,11 +30,13 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 
 阅读代码、分析问题和运行只读命令不需要询问。
 
-### 2. 每次改动都生成改动文档
+### 2. 较大的独立任务生成改动文档
 
-每完成一次改动，都要在 `docs/changes/` 下新建一份文档。一次任务写一份，不必每个文件写一份。
+完成较大、有独立性的任务后，在 `docs/changes/` 下新建一份文档，例如重构代码、新增功能。一次任务写一份，不必每个文件写一份。
 
-文件名格式：`YYYY-MM-DD-简短说明.md`，例如 `2026-11-05-init-agents-md.md`。
+小改动不写文档，例如修改说明文档、调整规则、改文案、修小问题。
+
+文件名格式：`YYYY-MM-DD-简短说明.md`，例如 `2026-11-05-chat-ui-rewrite.md`。
 
 文档使用以下模板：
 
@@ -65,7 +67,16 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 
 ## 常用命令
 
-项目代码尚未建立。添加启动、测试、lint 和评测命令后，要在这里写明实际可运行的命令，不要写未验证的命令。
+添加启动、测试、lint 和评测命令后，要在这里写明实际可运行的命令，不要写未验证的命令。
+
+- 启动全部服务：`cd project && docker compose up -d --build`，然后打开 http://localhost:8000
+- 后端测试：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m pytest -q`
+- 后端 lint：`cd project && ../.venv/bin/ruff check backend eval data`
+- 前端测试：`cd project/frontend && npm test`
+- 前端构建：`cd project/frontend && npm run build`
+- 模型连通检查：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli check_models`
+- 重建向量索引：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli build_index`
+- 评测：`cd project && ../.venv/bin/python eval/run_eval.py --mode all`，默认覆盖 `eval/results/latest.json`，可用 `--output` 改路径
 
 ## 编码规范
 

@@ -7,12 +7,14 @@ the offline demo mode.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from typing import Any
 
+from agentscope.agent import Agent
 from agentscope.credential import DashScopeCredential, DeepSeekCredential, OpenAICredential
 from agentscope.embedding import DashScopeEmbeddingModel, EmbeddingModelBase, OpenAIEmbeddingModel
-from agentscope.message import TextBlock, ToolCallBlock
+from agentscope.message import Msg, TextBlock, ToolCallBlock
 from agentscope.model import (
     ChatModelBase,
     ChatResponse,
@@ -98,6 +100,15 @@ def build_chat_model(settings: Settings) -> ChatModelBase | None:
         parameters=OpenAIChatModel.Parameters(temperature=temperature, max_tokens=1024),
         stream=False,
     )
+
+
+def probe_chat_model(model: ChatModelBase) -> str:
+    """Send one short message and return the reply; failures raise."""
+    agent = Agent(name="probe", system_prompt="你只需要回复 OK。", model=model)
+    reply = asyncio.run(agent.reply(Msg(name="user", content=[TextBlock(text="只回复 OK")],
+                                        role="user")))
+    return "".join(block.text for block in reply.content
+                   if isinstance(block, TextBlock)).strip()
 
 
 def build_embedding_model(settings: Settings) -> EmbeddingModelBase | None:

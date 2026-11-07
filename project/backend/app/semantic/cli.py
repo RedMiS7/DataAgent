@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import sys
 import time
 
-from agentscope.agent import Agent
-from agentscope.message import Msg, TextBlock
-
-from ..agent.scope_model import build_chat_model
+from ..agent.scope_model import build_chat_model, probe_chat_model
 from ..config import get_settings
 from ..db.engine import app_connection, business_connection
 from ..embedding import build_embedder
@@ -42,14 +38,6 @@ def cmd_build_index() -> int:
     return 0
 
 
-def _probe_chat_model(model) -> str:
-    agent = Agent(name="probe", system_prompt="你只需要回复 OK。", model=model)
-    reply = asyncio.run(agent.reply(Msg(name="user", content=[TextBlock(text="只回复 OK")],
-                                       role="user")))
-    return "".join(block.text for block in reply.content
-                   if isinstance(block, TextBlock)).strip()
-
-
 def cmd_check_models() -> int:
     settings = get_settings()
     ok = True
@@ -64,7 +52,7 @@ def cmd_check_models() -> int:
     else:
         started = time.perf_counter()
         try:
-            text = _probe_chat_model(model)
+            text = probe_chat_model(model)
             elapsed = int((time.perf_counter() - started) * 1000)
             print(f"LLM {model.model} OK ({elapsed} ms): {text[:40]}")
         except Exception as exc:

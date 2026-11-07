@@ -1,4 +1,14 @@
-import type { AnswerPayload, AttributionResult, CaseOut, StreamEvent } from "./types";
+import { DEFAULT_MODELS, type ModelOption } from "./lib/models";
+import type { AskMode } from "./lib/modes";
+import { parseSseBlock, splitSseBuffer } from "./lib/sse";
+import type {
+  AnswerPayload,
+  AttributionResult,
+  CaseOut,
+  MetaInfo,
+  SetupStatus,
+  StreamEvent,
+} from "./types";
 
 async function parseError(response: Response): Promise<string> {
   try {
@@ -9,15 +19,32 @@ async function parseError(response: Response): Promise<string> {
   }
 }
 
+export interface AskOptions {
+  /** Sent ahead of backend support; the current API ignores it. */
+  model?: string;
+  mode?: AskMode;
+  /** Re-asking: the backend drops the messages after this one first. */
+  afterMessageId?: number;
+  signal?: AbortSignal;
+}
+
 export async function askStream(
   question: string,
   sessionId: string,
   onEvent: (event: StreamEvent, data: Record<string, unknown>) => void,
+  options: AskOptions = {},
 ): Promise<void> {
   const response = await fetch("/api/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, session_id: sessionId }),
+    body: JSON.stringify({
+      question,
+      session_id: sessionId,
+      model: options.model,
+      mode: options.mode,
+      after_message_id: options.afterMessageId,
+    }),
+    signal: options.signal,
   });
   if (!response.ok) {
     throw new Error(await parseError(response));
@@ -30,20 +57,11 @@ export async function askStream(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  const dispatch = (chunk: string) => {
-    let event: StreamEvent = "status";
-    const dataLines: string[] = [];
-    for (const line of chunk.split("\n")) {
-      if (line.startsWith("event:")) {
-        event = line.slice(6).trim() as StreamEvent;
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trim());
-      }
-    }
-    if (!dataLines.length) return;
-    const raw = dataLines.join("\n");
+  const dispatch = (block: string) => {
+    const message = parseSseBlock(block);
+    if (!message) return;
     try {
-      onEvent(event, JSON.parse(raw) as Record<string, unknown>);
+      onEvent(message.event as StreamEvent, JSON.parse(message.data) as Record<string, unknown>);
     } catch {
       onEvent("error", { message: "无法解析服务端返回的数据" });
     }
@@ -53,13 +71,58 @@ export async function askStream(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split(/\r?\n\r?\n/);
-    buffer = chunks.pop() ?? "";
-    for (const chunk of chunks) {
-      if (chunk.trim()) dispatch(chunk);
-    }
+    const { blocks, rest } = splitSseBuffer(buffer);
+    buffer = rest;
+    blocks.forEach(dispatch);
   }
   if (buffer.trim()) dispatch(buffer);
+}
+
+export interface ModelList {
+  models: ModelOption[];
+  /** False while the list is the built-in fallback, so switching has no backend effect. */
+  live: boolean;
+}
+
+/** Falls back to the built-in list until the backend offers `/api/models`. */
+export async function fetchModels(): Promise<ModelList> {
+  const fallback = { models: DEFAULT_MODELS, live: false };
+  try {
+    const response = await fetch("/api/models");
+    if (!response.ok) return fallback;
+    const models = (await response.json()) as ModelOption[];
+    return Array.isArray(models) && models.length ? { models, live: true } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const response = await fetch("/api/setup/status");
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as SetupStatus;
+}
+
+export async function saveKeys(llmKey: string, embeddingKey: string): Promise<SetupStatus> {
+  const response = await fetch("/api/setup/keys", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ llm_api_key: llmKey, embedding_api_key: embeddingKey }),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as SetupStatus;
+}
+
+export async function retrySetup(): Promise<SetupStatus> {
+  const response = await fetch("/api/setup/retry", { method: "POST" });
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as SetupStatus;
+}
+
+export async function fetchMeta(): Promise<MetaInfo> {
+  const response = await fetch("/api/meta");
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as MetaInfo;
 }
 
 export async function askOnce(question: string, sessionId: string): Promise<AnswerPayload> {

@@ -32,7 +32,7 @@ function factorColumns(): ColumnsType<AttributionFactor> {
       dataIndex: "delta",
       align: "right",
       render: (value: number) => (
-        <span style={{ color: value >= 0 ? "#cf1322" : "#3f8600" }}>
+        <span style={{ color: value >= 0 ? "var(--danger)" : "var(--good)" }}>
           {value >= 0 ? "+" : ""}
           {value.toFixed(2)}
         </span>
@@ -84,7 +84,7 @@ export default function AttributionPage() {
           <Alert type={data.delta_points >= 0 ? "warning" : "success"} showIcon
                  message={data.summary} style={{ marginBottom: 8 }} />
           <div style={{ marginBottom: 16 }}>
-            <span className="tag-note">
+            <span className="note">
               结论来源：{data.summary_source === "agent" ? "AgentScope Agent" : "模板"}
             </span>
           </div>

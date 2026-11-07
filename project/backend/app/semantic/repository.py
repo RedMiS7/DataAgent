@@ -52,10 +52,10 @@ def sync_seed(conn: Connection, bundle: SeedBundle) -> dict[str, int]:
                 "INSERT INTO semantic_schema_items (table_name, column_name, description, synonyms, "
                 "join_hint, schema_version, enabled, updated_at) "
                 "VALUES (:table_name, :column_name, :description, :synonyms, :join_hint, "
-                ":schema_version, 1, NOW()) "
+                ":schema_version, :enabled, NOW()) "
                 "ON DUPLICATE KEY UPDATE description=VALUES(description), synonyms=VALUES(synonyms), "
                 "join_hint=VALUES(join_hint), schema_version=VALUES(schema_version), "
-                "enabled=1, updated_at=NOW()"
+                "enabled=VALUES(enabled), updated_at=NOW()"
             ),
             item.model_dump(),
         )
@@ -97,10 +97,22 @@ def fetch_tables(conn: Connection, enabled_only: bool = True) -> list[TableSeman
 def fetch_schema_items(conn: Connection, enabled_only: bool = True) -> list[SchemaItem]:
     where = "WHERE enabled = 1" if enabled_only else ""
     rows = conn.execute(text(
-        f"SELECT table_name, column_name, description, synonyms, join_hint, schema_version "
+        f"SELECT table_name, column_name, description, synonyms, join_hint, schema_version, enabled "
         f"FROM semantic_schema_items {where} ORDER BY table_name, column_name"
     )).mappings().all()
     return [SchemaItem(**dict(row)) for row in rows]
+
+
+def fetch_table_columns(conn: Connection) -> dict[str, list[tuple[str, str]]]:
+    """Read the real columns of the connected database, as {table: [(column, type)]}."""
+    rows = conn.execute(text(
+        "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION"
+    )).all()
+    columns: dict[str, list[tuple[str, str]]] = {}
+    for table, column, column_type in rows:
+        columns.setdefault(table, []).append((column, column_type))
+    return columns
 
 
 def fetch_metrics(conn: Connection, enabled_only: bool = True) -> list[Metric]:

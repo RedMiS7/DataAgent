@@ -27,6 +27,17 @@ class MetricNote(BaseModel):
     formula: str = ""
 
 
+AskMode = Literal["query", "analysis"]
+
+
+class QueryResult(BaseModel):
+    index: int
+    purpose: str = ""
+    sql: str = ""
+    table: TableBlock | None = None
+    chart: ChartSpec | None = None
+
+
 class AnswerPayload(BaseModel):
     question: str
     rewritten_question: str = ""
@@ -43,11 +54,40 @@ class AnswerPayload(BaseModel):
     retries: int = 0
     log_id: int | None = None
     degraded: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    mode: AskMode = "query"
+    results: list[QueryResult] = Field(default_factory=list)
+    message_id: int | None = None
 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     session_id: str = Field(default="default", max_length=64)
+    mode: AskMode = "query"
+    # Set when re-asking: messages after this id leave the conversation first.
+    after_message_id: int | None = Field(default=None, ge=0)
+
+
+class SetupStep(BaseModel):
+    key: str
+    label: str
+    state: Literal["pending", "running", "done", "waiting", "skipped", "failed"] = "pending"
+    detail: str = ""
+
+
+class SetupStatus(BaseModel):
+    ready: bool = False
+    llm_configured: bool = False
+    embedding_configured: bool = False
+    steps: list[SetupStep] = Field(default_factory=list)
+    orders_done: int = 0
+    orders_total: int = 0
+    error: str = ""
+
+
+class SaveKeysRequest(BaseModel):
+    llm_api_key: str = Field(default="", max_length=512)
+    embedding_api_key: str = Field(default="", max_length=512)
 
 
 class FeedbackRequest(BaseModel):

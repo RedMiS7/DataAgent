@@ -3,7 +3,7 @@ services:
     image: mysql:8.0
     container_name: dataagent-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ADMIN_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-change_me_root}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -15,7 +15,7 @@ services:
       - mysql_data:/var/lib/mysql
       - ./data/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ADMIN_PASSWORD}
+      test: mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ADMIN_PASSWORD:-change_me_root}
       interval: 5s
       timeout: 5s
       retries: 30
@@ -31,15 +31,22 @@ services:
 
   app:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: dataagent-app
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
+      TZ: Asia/Shanghai
       MYSQL_HOST: mysql
+      MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-change_me_root}
       QDRANT_URL: http://qdrant:6333
+      LOCAL_ENV_FILE: /config/.env.local
     ports:
       - "8000:8000"
+    volumes:
+      - app_config:/config
     depends_on:
       mysql:
         condition: service_healthy
@@ -49,3 +56,4 @@ services:
 volumes:
   mysql_data:
   qdrant_data:
+  app_config:

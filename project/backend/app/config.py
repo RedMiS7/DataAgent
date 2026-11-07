@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -9,6 +10,9 @@ from sqlalchemy.engine import URL
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BACKEND_DIR.parent
+
+# Keys saved from the web page, mapped to the Settings fields they fill.
+SAVED_KEY_FIELDS = {"LLM_API_KEY": "llm_api_key", "EMBEDDING_API_KEY": "embedding_api_key"}
 
 
 class Settings(BaseSettings):
@@ -21,16 +25,18 @@ class Settings(BaseSettings):
 
     app_env: str = "local"
     app_port: int = 8000
+    local_env_file: Path = PROJECT_DIR / ".env.local"
     as_of_date: date = date(2026, 10, 31)
+    log_level: str = "INFO"
 
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306
     mysql_business_db: str = "safe"
     mysql_app_db: str = "dataagent"
     mysql_ro_user: str = "shop_ro"
-    mysql_ro_password: str = ""
+    mysql_ro_password: str = "dataagent_ro_pwd"
     mysql_admin_user: str = "root"
-    mysql_admin_password: str = ""
+    mysql_admin_password: str = "change_me_root"
 
     qdrant_url: str = "http://127.0.0.1:6333"
     qdrant_collection_prefix: str = "dataagent"
@@ -99,6 +105,38 @@ class Settings(BaseSettings):
         return f"{self.qdrant_collection_prefix}_{suffix}"
 
 
+def read_saved_keys(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    saved: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name, separator, value = line.partition("=")
+        if separator and name in SAVED_KEY_FIELDS and value:
+            saved[name] = value
+    return saved
+
+
+def apply_saved_keys(settings: Settings) -> None:
+    """Keys saved from the web page take priority over `.env`."""
+    for name, value in read_saved_keys(settings.local_env_file).items():
+        setattr(settings, SAVED_KEY_FIELDS[name], value)
+
+
+def save_keys(settings: Settings, keys: dict[str, str]) -> None:
+    """Persist keys readable only by the service, then apply them to `settings`."""
+    path = settings.local_env_file
+    saved = read_saved_keys(path) | keys
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+        file.writelines(f"{name}={value}\n" for name, value in saved.items())
+    temporary.replace(path)
+    apply_saved_keys(settings)
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    apply_saved_keys(settings)
+    return settings

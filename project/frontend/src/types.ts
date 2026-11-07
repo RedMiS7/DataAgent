@@ -49,10 +49,21 @@ export interface RetrievalView {
   degraded_reason: string;
 }
 
+export type AnswerStatus = "ok" | "empty" | "refused" | "blocked" | "error";
+
+export interface QueryResult {
+  index: number;
+  purpose: string;
+  sql: string;
+  table: TableBlock | null;
+  chart: ChartSpec | null;
+}
+
 export interface AnswerPayload {
   question: string;
   rewritten_question: string;
   sql: string;
+  status: AnswerStatus;
   table: TableBlock | null;
   chart: ChartSpec | null;
   summary: string;
@@ -64,6 +75,43 @@ export interface AnswerPayload {
   retries: number;
   log_id: number | null;
   degraded: boolean;
+  warnings?: string[];
+  /** Missing on answers saved before analysis mode existed. */
+  mode?: "query" | "analysis";
+  results?: QueryResult[];
+  /** The answer's row in the conversation history kept by the backend. */
+  message_id?: number | null;
+  /** Not sent by the backend yet; shown only when present. */
+  model?: string;
+}
+
+export type SetupStepState = "pending" | "running" | "done" | "waiting" | "skipped" | "failed";
+
+export interface SetupStep {
+  key: string;
+  label: string;
+  state: SetupStepState;
+  detail: string;
+}
+
+export interface SetupStatus {
+  ready: boolean;
+  llm_configured: boolean;
+  embedding_configured: boolean;
+  steps: SetupStep[];
+  orders_done: number;
+  orders_total: number;
+  error: string;
+}
+
+export interface MetaInfo {
+  as_of_date: string;
+  sql_max_rows: number;
+  sql_timeout_ms: number;
+  llm_configured: boolean;
+  embedding_configured: boolean;
+  qdrant_available: boolean;
+  business_db_available: boolean;
 }
 
 export interface CaseOut {
@@ -99,7 +147,7 @@ export interface AttributionResult {
   sql: string[];
 }
 
-export type StreamEvent = "status" | "answer" | "error";
+export type StreamEvent = "status" | "reasoning" | "answer" | "error";
 
 export interface StreamHandler {
   (event: StreamEvent, data: Record<string, unknown>): void;

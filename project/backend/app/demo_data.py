@@ -1,24 +1,24 @@
 """Generate reproducible demo data for the shop database.
 
-Usage:
-    python data/generate.py --orders 200000
-
-The script truncates the business tables and re-inserts everything, so it is
-safe to rerun. Randomness is seeded so results are stable across runs.
+Everything is inserted in one transaction, so a failed run leaves no partial
+data. Generation refuses to touch a database that already has orders.
+Randomness is seeded so results are stable across runs.
 """
 
 from __future__ import annotations
 
-import argparse
 import random
-import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pymysql
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent
+from .config import Settings
+
+DEFAULT_ORDERS = 200_000
+DEFAULT_SEED = 42
+
+ProgressFn = Callable[[int], None]
 
 CATEGORIES = [
     "女装", "男装", "童装", "鞋靴", "箱包", "美妆", "护肤", "食品", "饮料", "生鲜",
@@ -65,19 +65,6 @@ LOW_ROI_CHANNEL_ID = 2
 BATCH_SIZE = 5000
 
 
-def parse_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip()
-    return values
-
-
 def weighted_choice(rng: random.Random, items: list[tuple[str, str, float]]) -> tuple[str, str, float]:
     total = sum(item[2] for item in items)
     point = rng.uniform(0, total)
@@ -103,28 +90,6 @@ def random_day(rng: random.Random) -> datetime:
     moment = datetime(chosen.year, chosen.month, chosen.day, rng.randint(0, 23),
                       rng.randint(0, 59), rng.randint(0, 59))
     return moment
-
-
-def batch_iter(rows: Iterable[tuple], size: int = BATCH_SIZE) -> Iterator[list[tuple]]:
-    batch: list[tuple] = []
-    for row in rows:
-        batch.append(row)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
-
-
-def truncate(cur: pymysql.cursors.Cursor) -> None:
-    tables = [
-        "ad_daily_stats", "ad_campaigns", "shipments", "refunds", "order_items",
-        "orders", "customers", "products", "channels", "categories",
-    ]
-    cur.execute("SET FOREIGN_KEY_CHECKS=0")
-    for table in tables:
-        cur.execute(f"TRUNCATE TABLE {table}")
-    cur.execute("SET FOREIGN_KEY_CHECKS=1")
 
 
 def seed_base(cur: pymysql.cursors.Cursor, rng: random.Random) -> tuple[int, int]:
@@ -173,7 +138,7 @@ def seed_base(cur: pymysql.cursors.Cursor, rng: random.Random) -> tuple[int, int
 
 
 def seed_orders(cur: pymysql.cursors.Cursor, rng: random.Random, product_count: int,
-                target_orders: int) -> dict[str, int]:
+                target_orders: int, on_progress: ProgressFn) -> dict[str, int]:
     stats = {"orders": 0, "items": 0, "refunds": 0, "shipments": 0}
     products = [
         (pid, rng.choice([19.9, 39.9, 59.9, 99.0, 129.0, 199.0, 299.0, 499.0, 899.0]))
@@ -215,6 +180,7 @@ def seed_orders(cur: pymysql.cursors.Cursor, rng: random.Random, product_count: 
             stats["items"] += len(items)
             stats["refunds"] += len(refunds)
             stats["shipments"] += len(shipments)
+            on_progress(stats["orders"])
         orders, items, refunds, shipments = [], [], [], []
 
     channel_ids = [i for i in range(1, len(CHANNELS) + 1)]
@@ -335,43 +301,43 @@ def seed_ads(cur: pymysql.cursors.Cursor, rng: random.Random, product_count: int
     return {"campaigns": len(campaigns), "ad_stats": stat_id - 1}
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate demo data for the shop database")
-    parser.add_argument("--orders", type=int, default=200000, help="number of orders to generate")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--env", type=Path, default=PROJECT_DIR / ".env")
-    args = parser.parse_args()
+def has_orders(settings: Settings) -> bool:
+    connection = _connect(settings)
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT EXISTS(SELECT 1 FROM orders)")
+            return bool(cur.fetchone()[0])
+    finally:
+        connection.close()
 
-    env = parse_env(args.env)
-    rng = random.Random(args.seed)
 
-    connection = pymysql.connect(
-        host=env.get("MYSQL_HOST", "127.0.0.1"),
-        port=int(env.get("MYSQL_PORT", "3306")),
-        user=env.get("MYSQL_ADMIN_USER", "root"),
-        password=env.get("MYSQL_ADMIN_PASSWORD", ""),
+def _connect(settings: Settings) -> pymysql.connections.Connection:
+    return pymysql.connect(
+        host=settings.mysql_host,
+        port=settings.mysql_port,
+        user=settings.mysql_admin_user,
+        password=settings.mysql_admin_password,
         database="shop",
         charset="utf8mb4",
         autocommit=False,
     )
+
+
+def generate(settings: Settings, on_progress: ProgressFn, orders: int = DEFAULT_ORDERS,
+             seed: int = DEFAULT_SEED) -> None:
+    if has_orders(settings):
+        raise RuntimeError("业务库已有订单，不生成模拟数据")
+
+    rng = random.Random(seed)
+    connection = _connect(settings)
     try:
         with connection.cursor() as cur:
-            truncate(cur)
-            product_count, customer_count = seed_base(cur, rng)
-            connection.commit()
-            print(f"base: {product_count} products, {customer_count} customers", flush=True)
-
-            stats = seed_orders(cur, rng, product_count, args.orders)
-            connection.commit()
-            print(f"orders: {stats}", flush=True)
-
-            ad_stats = seed_ads(cur, rng, product_count)
-            connection.commit()
-            print(f"ads: {ad_stats}", flush=True)
+            product_count, _ = seed_base(cur, rng)
+            seed_orders(cur, rng, product_count, orders, on_progress)
+            seed_ads(cur, rng, product_count)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

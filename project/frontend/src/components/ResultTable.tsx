@@ -13,14 +13,16 @@ export default function ResultTable({ table }: Props) {
 
   const columns: ColumnsType<Record<string, unknown>> = table.columns.map((name, index) => {
     const numeric = table.rows.some((row) => typeof row[index] === "number");
+    const key = `c${index}`;
     return {
       title: name,
-      dataIndex: `c${index}`,
-      key: `c${index}`,
+      dataIndex: key,
+      key,
       align: numeric ? "right" : "left",
+      className: numeric ? "cell-number" : undefined,
       sorter: numeric
-        ? (a, b) => Number(a[`c${index}`] ?? 0) - Number(b[`c${index}`] ?? 0)
-        : undefined,
+        ? (a, b) => Number(a[key] ?? 0) - Number(b[key] ?? 0)
+        : (a, b) => String(a[key] ?? "").localeCompare(String(b[key] ?? ""), "zh-CN"),
       render: (value: unknown) => (value === null || value === undefined ? "-" : String(value)),
     };
   });
@@ -40,11 +42,13 @@ export default function ResultTable({ table }: Props) {
         rowKey="key"
         columns={columns}
         dataSource={dataSource}
-        pagination={{ pageSize: 10, showSizeChanger: true }}
+        pagination={
+          dataSource.length > 10 ? { pageSize: 10, showSizeChanger: true, size: "small" } : false
+        }
         scroll={{ x: true }}
       />
       {table.truncated && (
-        <div className="tag-note">结果超过上限，已截断为前 {table.row_count} 行。</div>
+        <div className="note note-warn">结果超过上限，已截断为前 {table.row_count} 行。</div>
       )}
     </div>
   );

@@ -172,29 +172,46 @@
     "id": "f01",
     "category": "followup",
     "question": "那上上个月呢？",
-    "history": ["上个月GMV是多少？"],
+    "history": [
+      "上个月GMV是多少？"
+    ],
     "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01'"
   },
   {
     "id": "f02",
     "category": "followup",
     "question": "那上个月呢？",
-    "history": ["最近7天的订单数是多少？"],
+    "history": [
+      "最近7天的订单数是多少？"
+    ],
     "expected_sql": "SELECT COUNT(DISTINCT o.id) FROM safe.orders o WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01'"
   },
   {
     "id": "f03",
     "category": "followup",
     "question": "那上上个月呢？",
-    "history": ["上个月退款金额最高的商品是哪个？"],
+    "history": [
+      "上个月退款金额最高的商品是哪个？"
+    ],
     "expected_sql": "SELECT p.name FROM safe.refunds r JOIN safe.products p ON p.id = r.product_id WHERE r.status = 'completed' AND r.completed_at >= '2026-08-01' AND r.completed_at < '2026-09-01' GROUP BY p.name ORDER BY SUM(r.refund_amount) DESC LIMIT 1"
   },
   {
     "id": "f04",
     "category": "followup",
     "question": "那上个月呢？",
-    "history": ["最近30天的GMV是多少？"],
+    "history": [
+      "最近30天的GMV是多少？"
+    ],
     "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01'"
+  },
+  {
+    "id": "f05",
+    "category": "followup",
+    "question": "上上个月哪个商品卖的最差",
+    "history": [
+      "上个月销量最高的 10 个商品是哪些？"
+    ],
+    "expected_sql": "SELECT p.name, SUM(oi.quantity) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01' GROUP BY p.id, p.name ORDER BY SUM(oi.quantity) ASC LIMIT 1"
   },
   {
     "id": "r01",
@@ -246,6 +263,41 @@
     "id": "a04",
     "category": "attribution",
     "question": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+    "expected_sql": ""
+  },
+  {
+    "id": "n01",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "分析一下最近30天的销量，你能得出什么结论？",
+    "expected_sql": ""
+  },
+  {
+    "id": "n02",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "最近生意怎么样？",
+    "expected_sql": ""
+  },
+  {
+    "id": "n03",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "帮我看看退货情况，有什么问题吗？",
+    "expected_sql": ""
+  },
+  {
+    "id": "n04",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "下个月我应该重点推哪些商品？",
+    "expected_sql": ""
+  },
+  {
+    "id": "n05",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "今天有什么需要我注意的？",
     "expected_sql": ""
   }
 ]

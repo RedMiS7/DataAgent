@@ -1,261 +1,193 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDownOutlined, MenuOutlined } from "@ant-design/icons";
+import { Alert, App as AntApp } from "antd";
+import { fetchMeta, fetchModels } from "../api";
+import AnswerCard from "../components/chat/AnswerCard";
+import Composer from "../components/chat/Composer";
+import EmptyState from "../components/chat/EmptyState";
+import ReasoningPanel from "../components/chat/ReasoningPanel";
+import UserBubble from "../components/chat/UserBubble";
+import type { ChatApi } from "../hooks/useChat";
 import {
-  Alert,
-  App as AntApp,
-  Button,
-  Collapse,
-  Input,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from "antd";
-import { askStream, sendFeedback } from "../api";
-import ChartView from "../components/ChartView";
-import ResultTable from "../components/ResultTable";
-import type { AnswerPayload } from "../types";
+  DEFAULT_MODELS,
+  loadSavedModel,
+  resolveModelId,
+  saveModel,
+  type ModelOption,
+} from "../lib/models";
+import { loadSavedMode, saveMode, type AskMode } from "../lib/modes";
+import type { MetaInfo } from "../types";
 
-const { Text } = Typography;
+const FOLLOW_THRESHOLD = 120;
 
-interface ChatMessage {
-  id: string;
-  question: string;
-  answer?: AnswerPayload;
-  error?: string;
+interface Props {
+  chat: ChatApi;
+  onOpenSidebar: () => void;
 }
 
-interface StatusLine {
-  step: string;
-  message: string;
-}
-
-const EXAMPLES = [
-  "上个月哪个商品退货率最高？",
-  "最近 30 天 GMV 的趋势如何？",
-  "哪个投放渠道的 ROI 最低？",
-  "哪个省份的发货时效最慢？",
-];
-
-function newSessionId(): string {
-  return `session-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-}
-
-export default function ChatPage() {
+export default function ChatPage({ chat, onOpenSidebar }: Props) {
   const { message } = AntApp.useApp();
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [sessionId] = useState(newSessionId);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [statusLines, setStatusLines] = useState<StatusLine[]>([]);
+  const [models, setModels] = useState<ModelOption[]>(DEFAULT_MODELS);
+  const [modelsLive, setModelsLive] = useState(false);
+  const [model, setModel] = useState(() => resolveModelId(DEFAULT_MODELS, loadSavedModel()));
+  const [mode, setMode] = useState<AskMode>(loadSavedMode);
+  const [meta, setMeta] = useState<MetaInfo | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  const landedRef = useRef<string | null>(null);
 
-  const submit = async (question: string) => {
-    const trimmed = question.trim();
-    if (!trimmed || loading) return;
-    const id = `m-${Date.now()}`;
-    setMessages((prev) => [...prev, { id, question: trimmed }]);
-    setStatusLines([]);
-    setInput("");
-    setLoading(true);
+  const { active, streaming } = chat;
+  const messages = active.messages;
 
-    const update = (patch: Partial<ChatMessage>) => {
-      setMessages((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-    };
+  useEffect(() => {
+    void fetchModels().then((list) => {
+      setModels(list.models);
+      setModelsLive(list.live);
+      setModel(resolveModelId(list.models, loadSavedModel()));
+    });
+    fetchMeta().then(setMeta).catch(() => setMeta(null));
+  }, []);
 
-    try {
-      await askStream(trimmed, sessionId, (event, data) => {
-        if (event === "status") {
-          const step = String(data.step ?? "");
-          const text = String(data.message ?? "");
-          setStatusLines((prev) => {
-            if (prev.length && prev[prev.length - 1].step === step) {
-              return [...prev.slice(0, -1), { step, message: text }];
-            }
-            return [...prev, { step, message: text }];
-          });
-        } else if (event === "answer") {
-          update({ answer: data as unknown as AnswerPayload });
-        } else if (event === "error") {
-          update({ error: String(data.message ?? "处理失败") });
-        }
-      });
-    } catch (error) {
-      update({ error: error instanceof Error ? error.message : "请求失败" });
-    } finally {
-      setLoading(false);
+  const scrollToBottom = useCallback((smooth: boolean) => {
+    const box = scrollRef.current;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }, []);
+
+  useEffect(() => {
+    followRef.current = true;
+    setAtBottom(true);
+    scrollToBottom(false);
+  }, [active.id, scrollToBottom]);
+
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    const finished = last?.role === "assistant" && last.state !== "streaming";
+    if (finished && last.id !== landedRef.current) {
+      // Answers arrive whole and can be taller than the screen, so stop at their
+      // start: the conclusion is what the reader needs first.
+      landedRef.current = last.id;
+      const box = scrollRef.current;
+      const row = box?.querySelector<HTMLElement>(`[data-message="${last.id}"]`);
+      if (box && row && followRef.current) {
+        followRef.current = false;
+        box.scrollTo({ top: row.offsetTop - 12 });
+        return;
+      }
     }
+    if (followRef.current) scrollToBottom(false);
+  }, [messages, scrollToBottom]);
+
+  const onScroll = () => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const near = box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_THRESHOLD;
+    followRef.current = near;
+    setAtBottom(near);
   };
 
-  const feedback = async (logId: number | null, verdict: "correct" | "wrong") => {
-    if (!logId) return;
-    try {
-      await sendFeedback(logId, verdict);
-      message.success(verdict === "correct" ? "已记录为正确，进入待审核列表" : "已记录为错误");
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : "反馈失败");
-    }
+  const send = (text: string) => {
+    followRef.current = true;
+    chat.send(text, model, mode);
   };
 
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => message.success("已复制"),
+      () => message.error("复制失败，请手动选择文本"),
+    );
+  };
+
+  const feedback = (id: string, verdict: "correct" | "wrong", analysis: boolean) => {
+    const saved = analysis ? "已记录" : "已记录，进入待审核列表";
+    chat.giveFeedback(id, verdict).then(
+      () => message.success(verdict === "correct" ? saved : "已记录为错误"),
+      (error: unknown) => message.error(error instanceof Error ? error.message : "反馈失败"),
+    );
+  };
+
+  const lastAssistantId = [...messages].reverse().find((item) => item.role === "assistant")?.id;
+
   return (
-    <div className="chat-layout">
-      <div>
-        <div className="ask-box">
-          <Input.TextArea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="用中文提问，例如：上个月哪个商品退货率最高？"
-            autoSize={{ minRows: 2, maxRows: 5 }}
-            onPressEnter={(event) => {
-              if (!event.shiftKey) {
-                event.preventDefault();
-                void submit(input);
-              }
-            }}
-          />
-          <Space style={{ marginTop: 12 }} wrap>
-            <Button type="primary" loading={loading} onClick={() => void submit(input)}>
-              提问
-            </Button>
-            {EXAMPLES.map((example) => (
-              <Tag
-                key={example}
-                style={{ cursor: "pointer" }}
-                onClick={() => {
-                  setInput(example);
-                  void submit(example);
-                }}
-              >
-                {example}
-              </Tag>
-            ))}
-          </Space>
-        </div>
+    <div className="chat">
+      <header className="chat-top">
+        <button type="button" className="icon-button menu-button" aria-label="打开侧栏" onClick={onOpenSidebar}>
+          <MenuOutlined />
+        </button>
+        <span className="chat-title">{active.title}</span>
+        {meta && <span className="chat-asof">数据截止 {meta.as_of_date}</span>}
+      </header>
 
-        <div className="message-list">
-          {messages.map((item) => (
-            <div key={item.id}>
-              <div className="bubble user">
-                <div className="label">你的问题</div>
-                {item.question}
-              </div>
-              <div className="bubble">
-                <div className="label">DataAgent</div>
-                {item.error && <Alert type="warning" showIcon message={item.error} />}
-                {item.answer && <AnswerCard answer={item.answer} onFeedback={feedback} />}
-                {!item.answer && !item.error && <Spin size="small" />}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <aside className="status-panel">
-        <h3>处理状态</h3>
-        {statusLines.length === 0 && <Text type="secondary">等待提问</Text>}
-        {statusLines.map((line, index) => (
-          <div key={`${line.step}-${index}`} className={index === statusLines.length - 1 ? "status-line" : "status-line muted"}>
-            <span className="dot" />
-            <span>{line.message}</span>
-          </div>
-        ))}
-      </aside>
-    </div>
-  );
-}
-
-interface AnswerCardProps {
-  answer: AnswerPayload;
-  onFeedback: (logId: number | null, verdict: "correct" | "wrong") => void;
-}
-
-function AnswerCard({ answer, onFeedback }: AnswerCardProps) {
-  const retrieval = answer.retrieval;
-  return (
-    <div>
-      <div className="summary">{answer.summary}</div>
-      <div className="meta-grid">
-        <div>
-          时间范围：<strong>{answer.time_range.label ?? ""}</strong>（{answer.time_range.start} 至{" "}
-          {answer.time_range.end_exclusive}，不含右端）
-        </div>
-        <div>
-          数据表：<strong>{answer.tables_used.join("、") || "退答"}</strong>
-        </div>
-        {answer.rewritten_question && answer.rewritten_question !== answer.question && (
-          <div>
-            改写问题：<strong>{answer.rewritten_question}</strong>
-          </div>
-        )}
-        {answer.degraded && <div className="tag-note">检索降级：{retrieval.degraded_reason}</div>}
-        {answer.retries > 0 && <div>重试次数：{answer.retries}</div>}
-      </div>
-
-      {answer.table && (
-        <div className="answer-block">
-          <ResultTable table={answer.table} />
-        </div>
-      )}
-
-      {answer.table && answer.chart && (
-        <div className="answer-block">
-          <ChartView chart={answer.chart} table={answer.table} />
-        </div>
-      )}
-
-      {answer.metrics.length > 0 && (
-        <div className="answer-block">
-          <Text strong>口径说明</Text>
-          <ul style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 13, color: "#4b5563" }}>
-            {answer.metrics.map((metric) => (
-              <li key={metric.name}>
-                <strong>{metric.name}</strong>：{metric.definition}
-                {metric.formula && <span className="mono">（{metric.formula}）</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="answer-block">
-        <Collapse
-          ghost
-          items={[
-            {
-              key: "sql",
-              label: "查看 SQL",
-              children: <div className="mono">{answer.sql || "无"}</div>,
-            },
-            {
-              key: "retrieval",
-              label: "查看检索内容",
-              children: (
-                <div style={{ fontSize: 13 }}>
-                  <div>字段：{retrieval.schema_items.map((item) => `${item.table}.${item.column}`).join("、") || "无"}</div>
-                  <div>指标：{retrieval.metrics.map((item) => item.name).join("、") || "无"}</div>
-                  <div>实体：{retrieval.entities.map((item) => item.value).join("、") || "无"}</div>
-                  <div>案例：{retrieval.cases.map((item) => item.question).join("；") || "无"}</div>
-                </div>
-              ),
-            },
-            {
-              key: "time",
-              label: "查看时间解析",
-              children: <div className="mono">{JSON.stringify(answer.time_range, null, 2)}</div>,
-            },
-          ]}
+      {meta && !meta.llm_configured && (
+        <Alert
+          banner
+          type="warning"
+          message="服务端未配置大模型，提问会失败。请在 project/.env 填写 LLM_API_KEY 后重启后端。"
         />
+      )}
+
+      <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
+        <div className="chat-column">
+          {messages.length === 0 && <EmptyState asOfDate={meta?.as_of_date} onPick={send} />}
+          {messages.map((item) =>
+            item.role === "user" ? (
+              <UserBubble
+                key={item.id}
+                message={item}
+                disabled={streaming}
+                onCopy={copy}
+                onResend={(text) => chat.editAndResend(item.id, text, model)}
+              />
+            ) : (
+              <div className="assistant-row" key={item.id} data-message={item.id}>
+                <ReasoningPanel thinking={item.thinking} running={item.state === "streaming"} />
+                <AnswerCard
+                  message={item}
+                  canRegenerate={item.id === lastAssistantId && !streaming}
+                  onRegenerate={() => chat.regenerate(item.id, model)}
+                  onReanalyze={() => {
+                    setMode("analysis");
+                    saveMode("analysis");
+                    chat.regenerate(item.id, model, "analysis");
+                  }}
+                  onFeedback={(verdict) => feedback(item.id, verdict, item.answer?.mode === "analysis")}
+                  onCopy={copy}
+                />
+              </div>
+            ),
+          )}
+        </div>
       </div>
 
-      <div className="feedback-row">
-        <Text type="secondary">这个回答对吗？</Text>
-        <Button size="small" onClick={() => onFeedback(answer.log_id, "correct")}>
-          正确
-        </Button>
-        <Button size="small" danger onClick={() => onFeedback(answer.log_id, "wrong")}>
-          错误
-        </Button>
-        {answer.summary_source === "template" && (
-          <span className="tag-note">结论由模板生成</span>
+      <div className="chat-dock">
+        {!atBottom && (
+          <button
+            type="button"
+            className="to-bottom"
+            aria-label="回到底部"
+            onClick={() => scrollToBottom(true)}
+          >
+            <ArrowDownOutlined />
+          </button>
         )}
+        <Composer
+          streaming={streaming}
+          models={models}
+          model={model}
+          modelsLive={modelsLive}
+          mode={mode}
+          focusKey={active.id}
+          onModelChange={(id) => {
+            setModel(id);
+            saveModel(id);
+          }}
+          onModeChange={(next) => {
+            setMode(next);
+            saveMode(next);
+          }}
+          onSend={send}
+          onStop={chat.stop}
+        />
       </div>
     </div>
   );

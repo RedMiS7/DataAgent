@@ -4,6 +4,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 
+def log_tag(session_id: str) -> str:
+    """The short form of a session id, used to follow one conversation in the logs."""
+    return session_id[-6:]
+
+
 def ensure_conversation(conn: Connection, session_id: str) -> None:
     conn.execute(
         text(
@@ -26,9 +31,17 @@ def load_history(conn: Connection, session_id: str,
     return [(row["role"], row["content"]) for row in reversed(rows)]
 
 
-def save_message(conn: Connection, session_id: str, role: str, content: str,
-                 rewritten_question: str = "", sql_text: str = "") -> None:
+def rewind_history(conn: Connection, session_id: str, after_message_id: int) -> None:
+    """Drop the messages the user replaced, so the model no longer sees them."""
     conn.execute(
+        text("DELETE FROM messages WHERE session_id = :session_id AND id > :after_id"),
+        {"session_id": session_id, "after_id": after_message_id},
+    )
+
+
+def save_message(conn: Connection, session_id: str, role: str, content: str,
+                 rewritten_question: str = "", sql_text: str = "") -> int:
+    result = conn.execute(
         text(
             "INSERT INTO messages (session_id, role, content, rewritten_question, sql_text, "
             "created_at) VALUES (:session_id, :role, :content, :rewritten, :sql_text, NOW())"
@@ -36,6 +49,7 @@ def save_message(conn: Connection, session_id: str, role: str, content: str,
         {"session_id": session_id, "role": role, "content": content,
          "rewritten": rewritten_question or None, "sql_text": sql_text or None},
     )
+    return int(result.lastrowid)
 
 
 def save_query_log(conn: Connection, session_id: str, question: str, rewritten: str,

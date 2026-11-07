@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -9,11 +10,25 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from ..agent.pipeline import AskPipeline
+from ..agent.scope_model import build_chat_model
+from ..agent.session import log_tag
 from ..analysis import attribute_return_rate
-from ..config import Settings
+from ..bootstrap import Bootstrapper, KeyValidationError, validate_keys
+from ..config import SAVED_KEY_FIELDS, Settings, save_keys
 from ..db.engine import app_connection, business_engine, ping
+from ..embedding import build_embedder
 from ..semantic import repository
-from .schemas import AnswerPayload, AskRequest, CaseOut, CaseReviewRequest, FeedbackRequest
+from .schemas import (
+    AnswerPayload,
+    AskRequest,
+    CaseOut,
+    CaseReviewRequest,
+    FeedbackRequest,
+    SaveKeysRequest,
+    SetupStatus,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -24,6 +39,47 @@ def _settings(request: Request) -> Settings:
 
 def _pipeline(request: Request) -> AskPipeline:
     return request.app.state.pipeline
+
+
+def _bootstrapper(request: Request) -> Bootstrapper:
+    return request.app.state.bootstrapper
+
+
+@router.get("/setup/status", response_model=SetupStatus)
+def setup_status(request: Request) -> SetupStatus:
+    return _bootstrapper(request).status()
+
+
+@router.put("/setup/keys", response_model=SetupStatus)
+def setup_keys(request: Request, payload: SaveKeysRequest) -> SetupStatus:
+    """Check and save keys. They are write-only: no endpoint returns them."""
+    settings = _settings(request)
+    llm_key = payload.llm_api_key.strip()
+    embedding_key = payload.embedding_api_key.strip()
+    if not llm_key and not embedding_key:
+        raise HTTPException(status_code=400, detail="请至少填写一个 Key")
+    try:
+        validate_keys(settings, llm_key, embedding_key)
+    except KeyValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    entered = {"LLM_API_KEY": llm_key, "EMBEDDING_API_KEY": embedding_key}
+    save_keys(settings, {name: entered[name] for name in SAVED_KEY_FIELDS if entered[name]})
+
+    state = request.app.state
+    state.llm = build_chat_model(settings)
+    state.embedder = build_embedder(settings)
+    state.retriever.embedder = state.embedder
+    bootstrapper = _bootstrapper(request)
+    bootstrapper.start()
+    return bootstrapper.status()
+
+
+@router.post("/setup/retry", response_model=SetupStatus)
+def setup_retry(request: Request) -> SetupStatus:
+    bootstrapper = _bootstrapper(request)
+    bootstrapper.start()
+    return bootstrapper.status()
 
 
 @router.get("/meta")
@@ -43,7 +99,8 @@ def meta(request: Request) -> dict[str, Any]:
 
 @router.post("/ask", response_model=AnswerPayload)
 def ask(request: Request, payload: AskRequest) -> AnswerPayload:
-    return _pipeline(request).ask(payload.question, payload.session_id)
+    return _pipeline(request).ask(payload.question, payload.session_id, mode=payload.mode,
+                                  after_message_id=payload.after_message_id)
 
 
 @router.post("/ask/stream")
@@ -58,8 +115,10 @@ async def ask_stream(request: Request, payload: AskRequest) -> EventSourceRespon
     async def produce() -> None:
         try:
             await loop.run_in_executor(None, pipeline.ask, payload.question,
-                                       payload.session_id, emit)
+                                       payload.session_id, emit, payload.mode,
+                                       payload.after_message_id)
         except Exception as exc:
+            logger.exception("[%s] 问答异常", log_tag(payload.session_id))
             await queue.put(("error", {"message": f"服务异常：{exc}"}))
         finally:
             await queue.put(("done", {}))

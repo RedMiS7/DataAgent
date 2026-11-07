@@ -16,6 +16,8 @@ class SchemaItem(BaseModel):
     synonyms: str = ""
     join_hint: str = ""
     schema_version: str = "v1"
+    # 0 keeps a column out of retrieval. describe_table still shows it.
+    enabled: int = 1
 
 
 class Metric(BaseModel):

@@ -29,3 +29,12 @@ dist/
 *.sqlite
 *.db
 data/*.csv
+
+# Editor and agent local state
+.arts/
+**/.claude/worktrees/
+
+# TypeScript build output (tsc -b emits these for tsconfig.node.json)
+*.tsbuildinfo
+project/frontend/vite.config.js
+project/frontend/vite.config.d.ts

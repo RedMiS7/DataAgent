@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Any
 
 from agentscope.agent import Agent, ReActConfig
@@ -15,7 +14,7 @@ from ..agent.scope_model import build_chat_model
 from ..agent.tools import AgentRunContext, build_breakdown_toolkit
 from ..config import Settings
 from ..nl2sql.executor import execute_sql
-from ..nl2sql.time_parser import TimeRange, parse_time_range
+from ..nl2sql.time_parser import TimeRange, parse_time_range, previous_period
 from ..safety.validator import validate_and_limit
 
 logger = logging.getLogger(__name__)
@@ -53,13 +52,6 @@ class AttributionResult:
     summary: str = ""
     summary_source: str = "template"
     sql: list[str] = field(default_factory=list)
-
-
-def previous_period(current: TimeRange) -> TimeRange:
-    length = max(1, (current.end - current.start).days)
-    end = current.start
-    start = end - timedelta(days=length)
-    return TimeRange(start, end, f"{start.isoformat()} 至 {end.isoformat()}")
 
 
 def _totals_sql(settings: Settings, current: TimeRange, previous: TimeRange) -> str:
@@ -229,7 +221,8 @@ def _agent_summary(settings: Settings, question: str, result: AttributionResult,
 
 def attribute_return_rate(settings: Settings, question: str) -> AttributionResult:
     current = parse_time_range(question, settings.as_of_date)
-    previous = previous_period(current)
+    # "比上上个月高" names the baseline; otherwise compare with the period right before.
+    previous = current.baseline or previous_period(current)
 
     totals = _run(settings, _totals_sql(settings, current, previous))[0]
     cur_refund, prev_refund, cur_gmv, prev_gmv = (float(value) for value in totals)

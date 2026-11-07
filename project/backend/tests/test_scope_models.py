@@ -109,7 +109,7 @@ def test_agent_react_loop_calls_tool() -> None:
 def test_run_sql_tool_blocks_write() -> None:
     context = AgentRunContext(settings=make_settings(), retriever=None)  # type: ignore[arg-type]
     tool = _make_run_sql(context)
-    result = tool("DELETE FROM safe.orders")
+    result = asyncio.run(tool("DELETE FROM safe.orders"))
     assert "SQL 校验失败" in result
     assert context.executions == []
     assert context.errors

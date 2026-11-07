@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable
@@ -26,6 +27,7 @@ DECLINE_REASON_LIMIT = 200
 DEFAULT_DECLINE_REASON = "这个请求无法执行。"
 ANALYSIS_MAX_QUERIES = 10
 QUERY_LIMIT_MESSAGE = "查询次数已用完，不要再调用 run_sql，请基于已有结果作答。"
+STEP_LIMIT_MESSAGE = "这一步的查询次数已用完，不要再调用 run_sql，用一两句话说明这一步看到了什么。"
 UNKNOWN_COLUMN_HINT = "字段名不对。先调用 describe_table 查看这张表的真实字段，再重写 SQL。"
 
 READ_ONLY_PERMISSION = PermissionDecision(
@@ -44,6 +46,10 @@ class AgentRunContext:
     log_tag: str = "-"
     executions: list[ExecutionResult] = field(default_factory=list)
     purposes: list[str] = field(default_factory=list)
+    # The plan step of each execution; None outside a plan.
+    step_ids: list[int | None] = field(default_factory=list)
+    # Queries running or done. Plan steps run at once, so the limit counts queries in flight.
+    reserved: int = 0
     attempts: int = 0
     errors: list[str] = field(default_factory=list)
     declined: str = ""
@@ -102,8 +108,8 @@ def describe_tables(settings: Settings, names: list[str]) -> str:
     return "\n\n".join(sections)
 
 
-def _make_describe(context: AgentRunContext) -> Callable[[list[str]], str]:
-    def describe_table(tables: list[str]) -> str:
+def _make_describe(context: AgentRunContext) -> Callable[[list[str]], Any]:
+    async def describe_table(tables: list[str]) -> str:
         """查看表的全部字段、类型和说明。写 SQL 前字段不确定时调用。
 
         Args:
@@ -113,7 +119,8 @@ def _make_describe(context: AgentRunContext) -> Callable[[list[str]], str]:
         context.emit("status", {"step": "describing", "message": f"查看字段：{names}"})
         logger.info("[%s] 查看字段 tables=%s", context.log_tag, names)
         try:
-            return describe_tables(context.settings, tables)
+            # In a thread, so plan steps running at once are not held up by the database.
+            return await asyncio.to_thread(describe_tables, context.settings, tables)
         except SQLAlchemyError as exc:
             logger.warning("[%s] 查看字段失败 tables=%s error=%s", context.log_tag, names, exc)
             return f"查看字段失败：{exc}"
@@ -135,54 +142,68 @@ def _make_search(context: AgentRunContext) -> Callable[[str], str]:
     return search_semantic
 
 
-def _make_run_sql(context: AgentRunContext) -> Callable[[str], str]:
-    def run_sql(sql: str, purpose: str = "") -> str:
+def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
+                  step_limit: int | None = None) -> Callable[..., Any]:
+    step_reserved = 0
+
+    async def run_sql(sql: str, purpose: str = "") -> str:
         """执行一条只读 SQL 并返回结果预览。
 
         Args:
             sql: 单条 MySQL SELECT 语句，只能查询 safe 库。
             purpose: 这条查询要看什么，一句中文，例如“本期与上期整体对比”。
         """
+        nonlocal step_reserved
         analysis = context.mode == "analysis"
-        if analysis and len(context.executions) >= ANALYSIS_MAX_QUERIES:
+        if step_limit is not None and step_reserved >= step_limit:
+            logger.info("[%s] 第 %s 步查询次数已用完，未执行 sql=%s", context.log_tag, step_id,
+                        _one_line(sql))
+            return STEP_LIMIT_MESSAGE
+        if analysis and context.reserved >= ANALYSIS_MAX_QUERIES:
             logger.info("[%s] 查询次数已用完，未执行 sql=%s", context.log_tag, _one_line(sql))
             return QUERY_LIMIT_MESSAGE
 
         purpose = purpose.strip()
-        index = len(context.executions) + 1
-        label = f"查询 {index}：{purpose or '查询数据'}"
-        # One step per query, so the panel lists what each query was for.
-        step = f"query_{index}"
+        # The number is fixed once the query succeeds; steps running at once finish in any order.
+        attempt = len(context.executions) + 1
+        prefix = f"第{step_id}步 · " if step_id is not None else ""
 
         context.attempts += 1
-        context.emit("status", {"step": step, "message": label} if analysis else
-                     {"step": "validating", "message": "正在校验 SQL 安全性"})
+        if not analysis:
+            context.emit("status", {"step": "validating", "message": "正在校验 SQL 安全性"})
         try:
             safe_sql = validate_and_limit(sql, context.settings.sql_max_rows)
         except SQLValidationError as exc:
             message = str(exc)
             context.errors.append(message)
-            logger.warning("[%s] 查询 %d 被拦截 reason=%s sql=%s", context.log_tag, index, message,
+            logger.warning("[%s] 查询 %d 被拦截 reason=%s sql=%s", context.log_tag, attempt, message,
                            _one_line(sql))
             context.emit("status", {"step": "retrying", "message": f"SQL 被拦截：{message}"})
             return f"SQL 校验失败：{message}"
 
         if not analysis:
             context.emit("status", {"step": "executing", "message": "正在执行查询"})
+        context.reserved += 1
+        step_reserved += 1
         try:
-            execution = execute_sql(context.settings, safe_sql)
+            # In a thread, so plan steps running at once are not held up by the database.
+            execution = await asyncio.to_thread(execute_sql, context.settings, safe_sql)
         except SQLExecutionError as exc:
+            context.reserved -= 1
+            step_reserved -= 1
             message = str(exc)
             context.errors.append(message)
-            logger.warning("[%s] 查询 %d 失败 error=%s sql=%s", context.log_tag, index,
+            logger.warning("[%s] 查询 %d 失败 error=%s sql=%s", context.log_tag, attempt,
                            _database_error(exc), _one_line(safe_sql.sql))
-            context.emit("status", {"step": "retrying", "message": message})
+            context.emit("status", {"step": "retrying", "message": f"{prefix}{message}"})
             if "Unknown column" in message:
                 return f"{message}\n{UNKNOWN_COLUMN_HINT}"
             return message
 
         context.executions.append(execution)
         context.purposes.append(purpose)
+        context.step_ids.append(step_id)
+        index = len(context.executions)
         logger.info("[%s] 查询 %d 成功 %dms %d 行 目的=%s", context.log_tag, index,
                     execution.duration_ms, len(execution.rows), purpose or "-")
         logger.debug("[%s] 查询 %d sql=%s", context.log_tag, index, _one_line(execution.sql))
@@ -194,8 +215,11 @@ def _make_run_sql(context: AgentRunContext) -> Callable[[str], str]:
             "duration_ms": execution.duration_ms,
         }
         if analysis:
-            context.emit("status", {"step": step,
-                                    "message": f"{label}，返回 {len(execution.rows)} 行"})
+            # One line per query, so the panel lists what each query was for.
+            context.emit("status", {
+                "step": f"query_{index}",
+                "message": f"{prefix}查询 {index}：{purpose or '查询数据'}，返回 {len(execution.rows)} 行",
+            })
             preview["query_index"] = index
         return _json(preview)
 
@@ -217,12 +241,14 @@ def _make_decline(context: AgentRunContext) -> Callable[[str], str]:
     return decline_request
 
 
-def build_toolkit(context: AgentRunContext) -> Toolkit:
+def build_toolkit(context: AgentRunContext, step_id: int | None = None,
+                  step_limit: int | None = None) -> Toolkit:
+    """Tools for one agent; a plan step's toolkit tags its queries and caps their number."""
     return Toolkit([
         FunctionTool(_make_search(context), name="search_semantic",
                      description="检索与问题相关的表、字段、指标口径和历史案例",
                      permission=READ_ONLY_PERMISSION, is_read_only=True),
-        FunctionTool(_make_run_sql(context), name="run_sql",
+        FunctionTool(_make_run_sql(context, step_id, step_limit), name="run_sql",
                      description="执行一条只读 SELECT 语句并返回查询结果",
                      permission=READ_ONLY_PERMISSION, is_read_only=True),
         FunctionTool(_make_decline(context), name="decline_request",

@@ -1,4 +1,4 @@
-import type { AnswerPayload } from "../types";
+import type { AnswerPayload, HistoryMessage } from "../types";
 import type { AskMode } from "./modes";
 import type { Thinking } from "./reasoning";
 
@@ -143,14 +143,21 @@ export function restoreConversations(
  * Where the backend history should end when `kept` is all that remains of a conversation.
  * Undefined means unknown: the answer was saved before message ids existed.
  */
-export function lastMessageId(kept: ChatMessage[]): number | undefined {
-  for (let index = kept.length - 1; index >= 0; index -= 1) {
-    const message = kept[index];
-    if (message.role === "assistant" && message.answer) {
-      return message.answer.message_id ?? undefined;
+/** The conversation sent with each question; replies that failed or stopped are left out. */
+export function buildHistory(messages: ChatMessage[]): HistoryMessage[] {
+  const history: HistoryMessage[] = [];
+  for (const message of messages) {
+    if (message.role === "user") {
+      history.push({ role: "user", content: message.text });
+    } else if (message.state === "done" && message.answer?.summary) {
+      history.push({
+        role: "assistant",
+        content: message.answer.summary,
+        mode: message.answer.mode ?? "query",
+      });
     }
   }
-  return 0;
+  return history;
 }
 
 export function saveConversations(items: Conversation[]): void {

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildHistory,
   createConversation,
   deriveTitle,
   groupConversations,
-  lastMessageId,
   loadActiveId,
   loadConversations,
   restoreConversations,
@@ -157,14 +157,14 @@ describe("active conversation id", () => {
   });
 });
 
-describe("lastMessageId", () => {
-  const user: ChatMessage = { id: "u", role: "user", text: "问题" };
-  const assistant = (id: string, messageId?: number | null): ChatMessage => ({
-    id,
+describe("buildHistory", () => {
+  const user = (text: string): ChatMessage => ({ id: text, role: "user", text });
+  const done = (summary: string, mode?: "query" | "analysis"): ChatMessage => ({
+    id: summary,
     role: "assistant",
     state: "done",
     thinking: startThinking(NOW),
-    answer: { message_id: messageId } as never,
+    answer: { summary, mode } as never,
   });
   const stopped: ChatMessage = {
     id: "s",
@@ -172,19 +172,37 @@ describe("lastMessageId", () => {
     state: "stopped",
     thinking: startThinking(NOW),
   };
+  const failed: ChatMessage = {
+    id: "e",
+    role: "assistant",
+    state: "error",
+    error: "失败",
+    thinking: startThinking(NOW),
+  };
 
-  it("is 0 when nothing is kept", () => {
-    expect(lastMessageId([])).toBe(0);
-    expect(lastMessageId([user, stopped])).toBe(0);
+  it("is empty for a new conversation", () => {
+    expect(buildHistory([])).toEqual([]);
   });
 
-  it("uses the last answer, skipping turns without one", () => {
-    expect(lastMessageId([user, assistant("a", 7), user, assistant("b", 9)])).toBe(9);
-    expect(lastMessageId([user, assistant("a", 7), user, stopped])).toBe(7);
+  it("keeps every question and finished answer with its mode", () => {
+    expect(buildHistory([user("最近生意怎么样"), done("整体平稳 [查询1]", "analysis"),
+                         user("上个月 GMV"), done("966.6 万", "query")])).toEqual([
+      { role: "user", content: "最近生意怎么样" },
+      { role: "assistant", content: "整体平稳 [查询1]", mode: "analysis" },
+      { role: "user", content: "上个月 GMV" },
+      { role: "assistant", content: "966.6 万", mode: "query" },
+    ]);
   });
 
-  it("is unknown for answers saved before message ids existed", () => {
-    expect(lastMessageId([user, assistant("a")])).toBeUndefined();
-    expect(lastMessageId([user, assistant("a", null)])).toBeUndefined();
+  it("leaves out replies that stopped or failed", () => {
+    expect(buildHistory([user("甲"), stopped, user("乙"), failed])).toEqual([
+      { role: "user", content: "甲" },
+      { role: "user", content: "乙" },
+    ]);
+  });
+
+  it("treats answers saved before modes existed as query answers", () => {
+    expect(buildHistory([user("甲"), done("结论")])[1]).toEqual(
+      { role: "assistant", content: "结论", mode: "query" });
   });
 });

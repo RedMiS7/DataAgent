@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import time
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from unittest import mock
 
-from app.agent import session
+from app.agent import planner
 from app.agent.pipeline import AskPipeline
+from app.agent.router import route_question
+from app.agent.scope_model import build_chat_model
 from app.analysis import attribute_return_rate
+from app.api.schemas import AnswerPayload, HistoryMessage
 from app.config import Settings
-from app.db.engine import app_connection
 from app.nl2sql.executor import execute_sql
 from app.safety.validator import SQLValidationError, validate_and_limit
-from sqlalchemy import text
 
 EVAL_DIR = Path(__file__).resolve().parent
 
@@ -27,6 +31,8 @@ class CaseResult:
     sql: str = ""
     expected_rows: int = 0
     actual_rows: int = 0
+    duration_ms: int = 0
+    summary: str = ""
 
 
 @dataclass(slots=True)
@@ -99,12 +105,50 @@ def execute_reference(settings: Settings, sql: str) -> list[list]:
     return execute_sql(settings, safe).rows
 
 
-def _seed_history(settings: Settings, session_id: str, history: list[str]) -> None:
-    with app_connection(settings) as conn:
-        conn.execute(text("DELETE FROM messages WHERE session_id = :sid"), {"sid": session_id})
-        for item in history:
-            session.save_message(conn, session_id, "user", item)
-            session.save_message(conn, session_id, "assistant", "已完成上一次查询")
+def history_from_questions(history: list[str]) -> list[HistoryMessage]:
+    """Earlier questions of a follow-up case, each with a placeholder reply."""
+    messages: list[HistoryMessage] = []
+    for item in history:
+        messages.append(HistoryMessage(role="user", content=item))
+        messages.append(HistoryMessage(role="assistant", content="已完成上一次查询", mode="query"))
+    return messages
+
+
+# Words that show a plan step or query looked at a dimension.
+DIMENSION_WORDS: dict[str, tuple[str, ...]] = {
+    "整体": ("整体", "总体", "大盘", "总GMV", "总订单", "总销售"),
+    "类目": ("类目", "品类"),
+    "渠道": ("渠道",),
+    "商品": ("商品", "SKU", "单品"),
+    "地区": ("地区", "省份", "城市", "区域"),
+    "广告": ("广告", "投放", "ROI", "推广"),
+    "退款": ("退款", "退货"),
+    "物流": ("物流", "承运", "发货", "配送"),
+    "客户": ("客户", "新客", "老客", "复购"),
+}
+
+
+def covered_dimensions(answer: AnswerPayload, expected: list[str]) -> list[str]:
+    """The expected dimensions named by the plan steps or the shown queries."""
+    text = " ".join([*(step.goal for step in answer.plan),
+                     *(item.purpose for item in answer.results)])
+    return [name for name in expected if any(word in text for word in DIMENSION_WORDS[name])]
+
+
+def score_analysis(answer: AnswerPayload, question: dict) -> tuple[bool, str]:
+    expected = question.get("expected_dimensions") or []
+    covered = covered_dimensions(answer, expected)
+    verified = not any("未能在查询结果中核对" in warning for warning in answer.warnings)
+    passed = (answer.status == "ok" and answer.summary_source == "model"
+              and len(answer.results) >= 1 and len(covered) == len(expected) and verified)
+    done = sum(step.status == "done" for step in answer.plan)
+    detail = (f"status={answer.status}, source={answer.summary_source}, "
+              f"plan={done}/{len(answer.plan)}, results={len(answer.results)}, "
+              f"dimensions={len(covered)}/{len(expected)}"
+              + (f" 缺{'、'.join(name for name in expected if name not in covered)}"
+                 if len(covered) < len(expected) else "")
+              + ("" if verified else ", 数字未核对"))
+    return passed, detail
 
 
 def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: list[dict],
@@ -114,12 +158,9 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
     for question in selected:
         category = question["category"]
         session_id = f"eval-{question['id']}"
-        history = question.get("history") or []
-        if history:
-            _seed_history(settings, session_id, history)
-
+        history = history_from_questions(question.get("history") or [])
         answer = pipeline.ask(question["question"], session_id,
-                              mode=question.get("mode", "query"))
+                              mode=question.get("mode", "query"), history=history)
         expected_rows: list[list] = []
         if question.get("expected_sql"):
             try:
@@ -135,10 +176,7 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             passed = answer.status == question.get("expect_status", "refused")
             detail = f"status={answer.status}"
         elif category == "analysis":
-            passed = (answer.status == "ok" and answer.summary_source == "model"
-                      and len(answer.results) >= 2)
-            detail = (f"status={answer.status}, source={answer.summary_source}, "
-                      f"results={len(answer.results)}")
+            passed, detail = score_analysis(answer, question)
         else:
             actual_rows = answer.table.rows if answer.table else []
             passed = answer.status == "ok" and compare_rows(expected_rows, actual_rows)
@@ -149,6 +187,61 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             passed=passed, status=answer.status, detail=detail, sql=answer.sql,
             expected_rows=len(expected_rows),
             actual_rows=len(answer.table.rows) if answer.table else 0,
+        ))
+    return report
+
+
+async def _no_plan(*args: object) -> None:
+    return None
+
+
+def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
+                      limit: int | None = None, use_plan: bool = True) -> EvalReport:
+    """Analysis questions only, with timing and the conclusion kept for comparison.
+
+    use_plan=False skips the planner, so the single-agent analysis answers instead.
+    """
+    report = EvalReport()
+    selected = [item for item in questions if item["category"] == "analysis"]
+    patch = nullcontext() if use_plan else mock.patch.object(planner, "_make_plan", _no_plan)
+    with patch:
+        for question in selected[:limit] if limit else selected:
+            history = history_from_questions(question.get("history") or [])
+            started = time.perf_counter()
+            answer = pipeline.ask(question["question"], f"eval-{question['id']}",
+                                  mode="analysis", history=history)
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            passed, detail = score_analysis(answer, question)
+            report.add(CaseResult(
+                id=question["id"], category="analysis", question=question["question"],
+                passed=passed, status=answer.status, detail=f"{detail}, {duration_ms}ms",
+                duration_ms=duration_ms, summary=answer.summary,
+            ))
+    return report
+
+
+def load_routing_cases(path: Path | None = None) -> list[dict]:
+    return json.loads((path or EVAL_DIR / "routing_cases.json").read_text(encoding="utf-8"))
+
+
+def evaluate_routing(settings: Settings, cases: list[dict],
+                     limit: int | None = None) -> EvalReport:
+    """Only the router runs: each case checks the mode chosen for its last question."""
+    report = EvalReport()
+    for case in cases[:limit] if limit else cases:
+        # Each call runs in a new event loop, so each case gets a fresh model.
+        model = build_chat_model(settings)
+        if model is None:
+            raise RuntimeError("未配置大模型，无法运行路由评测")
+        history = [HistoryMessage(**item) for item in case.get("history") or []]
+        decision = route_question(model, case["question"], history, f"eval-{case['id']}")
+        expected = case["expected_route"]
+        report.add(CaseResult(
+            id=case["id"], category=case["category"], question=case["question"],
+            passed=decision.route == expected and decision.source == "llm",
+            status=decision.source,
+            detail=(f"expected={expected}, got={decision.route}, "
+                    f"source={decision.source}, reason={decision.reason}"),
         ))
     return report
 

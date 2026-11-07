@@ -1,0 +1,224 @@
+[
+  {
+    "id": "r01",
+    "category": "query",
+    "question": "上个月GMV是多少？",
+    "expected_route": "query"
+  },
+  {
+    "id": "r02",
+    "category": "query",
+    "question": "最近30天销量前10的商品是哪些？",
+    "expected_route": "query"
+  },
+  {
+    "id": "r03",
+    "category": "query",
+    "question": "各渠道上个月的订单数和客单价",
+    "expected_route": "query"
+  },
+  {
+    "id": "r04",
+    "category": "query",
+    "question": "这个月比上个月GMV涨了多少？",
+    "expected_route": "query"
+  },
+  {
+    "id": "r05",
+    "category": "query",
+    "question": "哪个省份的订单最多？",
+    "expected_route": "query"
+  },
+  {
+    "id": "r06",
+    "category": "query",
+    "question": "上周每天的退款金额",
+    "expected_route": "query"
+  },
+  {
+    "id": "r07",
+    "category": "query",
+    "question": "抖音渠道的广告ROI是多少？",
+    "expected_route": "query"
+  },
+  {
+    "id": "r08",
+    "category": "query",
+    "question": "一共有多少个商品在售？",
+    "expected_route": "query"
+  },
+  {
+    "id": "r09",
+    "category": "analysis",
+    "question": "最近生意怎么样？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r10",
+    "category": "analysis",
+    "question": "为什么上个月退货变多了？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r11",
+    "category": "analysis",
+    "question": "下个月应该重点推哪些商品？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r12",
+    "category": "analysis",
+    "question": "帮我看看广告投放有没有问题",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r13",
+    "category": "analysis",
+    "question": "分析一下最近30天的销量，你能得出什么结论？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r14",
+    "category": "analysis",
+    "question": "今天有什么需要我注意的？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r15",
+    "category": "analysis",
+    "question": "GMV下降的原因是什么？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r16",
+    "category": "analysis",
+    "question": "哪些商品值得加大库存，为什么？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r17",
+    "category": "ambiguous",
+    "question": "最近退货率高吗？",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r18",
+    "category": "ambiguous",
+    "question": "各类目销量对比",
+    "expected_route": "query"
+  },
+  {
+    "id": "r19",
+    "category": "ambiguous",
+    "question": "上个月和上上个月的GMV对比",
+    "expected_route": "query"
+  },
+  {
+    "id": "r20",
+    "category": "ambiguous",
+    "question": "帮我总结一下上个月的经营情况",
+    "expected_route": "analysis"
+  },
+  {
+    "id": "r21",
+    "category": "followup",
+    "question": "那订单数具体是多少？",
+    "expected_route": "query",
+    "history": [
+      {
+        "role": "user",
+        "content": "最近生意怎么样？"
+      },
+      {
+        "role": "assistant",
+        "content": "最近30天销量小幅增长，童装带动明显。\n- GMV 966.6 万，比上一周期增长 6.3% [查询1]\n- 童装销量增长最多 [查询2]\n- 建议：加大童装投放",
+        "mode": "analysis"
+      }
+    ]
+  },
+  {
+    "id": "r22",
+    "category": "followup",
+    "question": "为什么比之前低？",
+    "expected_route": "analysis",
+    "history": [
+      {
+        "role": "user",
+        "content": "上个月GMV是多少？"
+      },
+      {
+        "role": "assistant",
+        "content": "上个月 GMV 为 966.6 万元。",
+        "mode": "query"
+      }
+    ]
+  },
+  {
+    "id": "r23",
+    "category": "followup",
+    "question": "那上上个月呢？",
+    "expected_route": "query",
+    "history": [
+      {
+        "role": "user",
+        "content": "上个月GMV是多少？"
+      },
+      {
+        "role": "assistant",
+        "content": "上个月 GMV 为 966.6 万元。",
+        "mode": "query"
+      }
+    ]
+  },
+  {
+    "id": "r24",
+    "category": "followup",
+    "question": "那换成退货呢？",
+    "expected_route": "analysis",
+    "history": [
+      {
+        "role": "user",
+        "content": "分析一下最近30天的销量"
+      },
+      {
+        "role": "assistant",
+        "content": "最近30天销量小幅增长，童装带动明显。\n- GMV 966.6 万，比上一周期增长 6.3% [查询1]\n- 童装销量增长最多 [查询2]\n- 建议：加大童装投放",
+        "mode": "analysis"
+      }
+    ]
+  },
+  {
+    "id": "r25",
+    "category": "followup",
+    "question": "按渠道拆开呢？",
+    "expected_route": "query",
+    "history": [
+      {
+        "role": "user",
+        "content": "上个月销量前10的商品是哪些？"
+      },
+      {
+        "role": "assistant",
+        "content": "上个月销量最高的是童装热销款208号，176件。",
+        "mode": "query"
+      }
+    ]
+  },
+  {
+    "id": "r26",
+    "category": "followup",
+    "question": "第一条建议具体怎么做？",
+    "expected_route": "analysis",
+    "history": [
+      {
+        "role": "user",
+        "content": "最近生意怎么样？"
+      },
+      {
+        "role": "assistant",
+        "content": "最近30天销量小幅增长，童装带动明显。\n- GMV 966.6 万，比上一周期增长 6.3% [查询1]\n- 童装销量增长最多 [查询2]\n- 建议：加大童装投放",
+        "mode": "analysis"
+      }
+    ]
+  }
+]

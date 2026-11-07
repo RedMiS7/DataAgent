@@ -560,6 +560,75 @@ button:focus-visible {
   white-space: pre-wrap;
 }
 
+.plan-steps {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.plan-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  transform: translateY(-1px);
+}
+
+.plan-step.is-running .plan-mark {
+  border-color: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.plan-step.is-done .plan-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.plan-step.is-failed .plan-mark {
+  border-color: var(--warn);
+  background: var(--warn);
+}
+
+.plan-step.is-unfinished,
+.plan-step.is-pending {
+  color: var(--muted);
+}
+
+.plan-step.is-failed .plan-state {
+  color: var(--warn);
+}
+
+.plan-goal {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.plan-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.plan-state {
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 @keyframes pulse {
   50% {
     opacity: 0.35;
@@ -638,6 +707,23 @@ button:focus-visible {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--ink);
+}
+
+.result-groups {
+  margin-top: 16px;
+}
+
+.result-group + .result-group {
+  margin-top: 10px;
+}
+
+.result-group-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.result-group .result-switch {
+  margin-top: 4px;
 }
 
 .result-switch-index {

@@ -21,11 +21,12 @@ from app.agent.answer import (
 from app.agent.pipeline import (
     AskPipeline,
     build_retrieval_query,
+    history_pairs,
     is_followup,
     resolve_time_range,
 )
 from app.agent.scope_model import ScriptedChatModel
-from app.api.schemas import AskRequest
+from app.api.schemas import HISTORY_MAX_MESSAGES, AskRequest, HistoryMessage
 from app.config import Settings
 from app.main import ClosedClientFilter, configure_logging
 from app.nl2sql.executor import ExecutionResult, SQLExecutionError
@@ -38,6 +39,9 @@ AS_OF = date(2026, 10, 31)
 CALL_IDS = itertools.count(1)
 FIRST_QUESTION = "上个月销量最高的 10 个商品是哪些？"
 HISTORY = [("user", FIRST_QUESTION), ("assistant", "上个月销量最高的是童装热销款208号，176件。")]
+CLIENT_HISTORY = [HistoryMessage(role=role, content=content,  # type: ignore[arg-type]
+                                 mode="query" if role == "assistant" else None)
+                  for role, content in HISTORY]
 AUGUST_SQL = ("SELECT name, qty FROM safe.products "
               "WHERE day >= '2026-08-01' AND day < '2026-09-01' ORDER BY qty ASC LIMIT 10")
 SEPTEMBER_SQL = ("SELECT name, qty FROM safe.products "
@@ -78,6 +82,63 @@ def test_followup_without_time_inherits_the_last_named_time() -> None:
 
 def test_new_question_without_time_keeps_the_default() -> None:
     assert resolve_time_range("一共有几个渠道", HISTORY, AS_OF).is_default
+
+
+def _span(value: Any) -> tuple[str, str]:
+    return value.start.isoformat(), value.end.isoformat()
+
+
+def test_comparison_takes_the_period_from_history_and_the_baseline_from_the_question() -> None:
+    history = [("user", "上个月GMV是多少？"), ("assistant", "上个月GMV是 9665990.5。")]
+    result = resolve_time_range("为什么比上上个月高？", history, AS_OF)
+    assert _span(result) == ("2026-09-01", "2026-10-01")
+    assert result.baseline is not None and _span(result.baseline) == ("2026-08-01", "2026-09-01")
+
+
+def test_comparison_without_history_uses_the_period_after_the_baseline() -> None:
+    result = resolve_time_range("为什么比上个月低？", [], AS_OF)
+    assert _span(result) == ("2026-10-01", "2026-11-01")
+    assert result.baseline is not None and result.baseline.label == "上个月"
+
+
+def test_a_named_period_wins_over_history_in_a_comparison() -> None:
+    history = [("user", "上上个月的 GMV"), ("assistant", "好的")]
+    result = resolve_time_range("本月为什么比上个月低", history, AS_OF)
+    assert result.label == "本月至今"
+    assert result.baseline is not None and result.baseline.label == "上个月"
+
+
+def test_a_followup_keeps_the_baseline_of_the_last_comparison() -> None:
+    history = [("user", "上个月GMV比上上个月高多少"), ("assistant", "高 12 万。")]
+    result = resolve_time_range("那按渠道呢", history, AS_OF)
+    assert result.label == "上个月"
+    assert result.baseline is not None and result.baseline.label == "上上个月"
+
+
+def _prompt(question: str, mode: str) -> str:
+    settings = Settings(_env_file=None, as_of_date=AS_OF)
+    return AskPipeline(settings, StubRetriever())._system_prompt(  # type: ignore[arg-type]
+        RetrievalBundle(), parse_time_range(question, AS_OF), mode)  # type: ignore[arg-type]
+
+
+def test_prompt_names_the_baseline_from_the_question() -> None:
+    for mode in ("query", "analysis"):
+        prompt = _prompt("上个月GMV为什么比上上个月高", mode)
+        assert "对比期：上上个月，[2026-08-01, 2026-09-01)" in prompt
+        assert "上一个周期" not in prompt
+
+
+def test_prompt_without_a_baseline() -> None:
+    assert "对比期" not in _prompt("上个月GMV", "query")
+    assert "对比期（上一个周期）：[2026-08-01, 2026-09-01)" in _prompt("上个月GMV", "analysis")
+    assert "对比期（上一个周期）：[2026-10-18, 2026-10-25)" in _prompt("最近7天GMV", "analysis")
+
+
+def test_user_content_carries_the_baseline_dates() -> None:
+    settings = Settings(_env_file=None, as_of_date=AS_OF)
+    content = AskPipeline(settings, StubRetriever())._user_content(  # type: ignore[arg-type]
+        "上个月比上上个月高多少", parse_time_range("上个月比上上个月高多少", AS_OF))
+    assert "对比期 上上个月：日期 >= '2026-08-01' 且 < '2026-09-01'" in content
 
 
 def test_select_execution_prefers_the_query_behind_the_conclusion() -> None:
@@ -134,15 +195,18 @@ def ask(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
-    monkeypatch.setattr(session, "ensure_conversation", lambda *args: None)
-    monkeypatch.setattr(session, "load_history", lambda *args: HISTORY)
-    monkeypatch.setattr(session, "save_message", lambda *args: None)
     monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
 
-    def run(question: str, script: list[list[Any]]):
-        monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: ScriptedChatModel(script))
+    def run(question: str, script: list[list[Any]], mode: str = "query",
+            history: list[HistoryMessage] | None = None, emit: Any = None,
+            route: list[Any] | None = None):
+        # The first model built goes to the agent, the second to the router.
+        models = iter([ScriptedChatModel(script), ScriptedChatModel([route or []])])
+        monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: next(models))
         settings = Settings(_env_file=None, as_of_date=AS_OF)
-        return AskPipeline(settings, StubRetriever()).ask(question, "test")  # type: ignore[arg-type]
+        return AskPipeline(settings, StubRetriever()).ask(  # type: ignore[arg-type]
+            question, "test", emit, mode,  # type: ignore[arg-type]
+            CLIENT_HISTORY if history is None else history)
 
     return run
 
@@ -258,9 +322,12 @@ def test_numbers_are_checked_against_every_given_query() -> None:
     assert unverified_numbers("1234 和 5678", "问题", [[[1234]], [[5678]]]) == []
 
 
+NO_PLAN = [TextBlock(text="不是计划")]
+
+
 @pytest.fixture
 def analyze(monkeypatch: pytest.MonkeyPatch):
-    """Runs analysis mode through the real Agent loop, recording what would be stored."""
+    """Runs analysis mode without a plan, through the real Agent loop, recording what would be stored."""
     @contextmanager
     def no_connection(settings: Settings):
         yield None
@@ -278,17 +345,14 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
         saved["log_sql"] = sql
         return 1
 
-    def save_message(conn: object, session_id: str, role: str, content: str, *rest: Any) -> None:
-        saved[role] = content
-
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
-    monkeypatch.setattr(session, "ensure_conversation", lambda *args: None)
-    monkeypatch.setattr(session, "load_history", lambda *args: [])
-    monkeypatch.setattr(session, "save_message", save_message)
     monkeypatch.setattr(session, "save_query_log", save_log)
 
     def run(script: list[list[Any]], mode: str = "analysis"):
+        # The planner reads the first reply; an unreadable plan runs the single agent.
+        if mode == "analysis":
+            script = [NO_PLAN, *script]
         monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: ScriptedChatModel(script))
         settings = Settings(_env_file=None, as_of_date=AS_OF)
         answer = AskPipeline(settings, StubRetriever()).ask(  # type: ignore[arg-type]
@@ -300,7 +364,7 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_analysis_shows_only_the_cited_queries(analyze) -> None:
-    answer, saved = analyze([
+    answer, _ = analyze([
         [call("run_sql", sql=OVERALL_SQL, purpose="整体")],
         [call("run_sql", sql=OVERALL_SQL, purpose="没用上的查询")],
         [call("run_sql", sql=CATEGORY_SQL, purpose="类目拆分")],
@@ -313,7 +377,6 @@ def test_analysis_shows_only_the_cited_queries(analyze) -> None:
     assert answer.warnings == []
     assert answer.table is not None and answer.table.rows == [[9665990.5]]
     assert answer.sql == answer.results[0].sql
-    assert "[查询" not in saved["assistant"]
 
 
 def test_analysis_shows_every_query_without_citations(analyze) -> None:
@@ -369,58 +432,142 @@ def test_analysis_prompt_differs_only_in_the_answer_rule() -> None:
                                             pipeline.QUERY_ANSWER_RULE) == pipeline.SYSTEM_PROMPT
 
 
-# Re-asking
+# History from the client
 
-def test_rewind_runs_before_history_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    @contextmanager
-    def no_connection(settings: Settings):
-        yield None
-
-    calls: list[Any] = []
-
-    def load_history(conn: object, session_id: str) -> list[tuple[str, str]]:
-        calls.append("load")
-        return []
-
-    monkeypatch.setattr(pipeline, "app_connection", no_connection)
-    monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: None)
-    monkeypatch.setattr(session, "ensure_conversation", lambda *args: None)
-    monkeypatch.setattr(session, "rewind_history", lambda conn, sid, after: calls.append((sid, after)))
-    monkeypatch.setattr(session, "load_history", load_history)
-    monkeypatch.setattr(session, "save_message", lambda *args: 42)
-    monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
-
-    settings = Settings(_env_file=None, as_of_date=AS_OF)
-    answer = AskPipeline(settings, StubRetriever()).ask(  # type: ignore[arg-type]
-        "上个月 GMV", "test", after_message_id=0)
-    assert calls == [("test", 0), "load"]
-    assert answer.message_id == 42
+def test_history_pairs_drop_citations_from_replies() -> None:
+    history = [HistoryMessage(role="user", content="分析销量[查询1]"),
+               HistoryMessage(role="assistant", content="增长 6.3%[查询1][查询2]", mode="analysis")]
+    assert history_pairs(history) == [("user", "分析销量[查询1]"), ("assistant", "增长 6.3%")]
 
 
-def test_a_new_question_does_not_rewind(ask, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_model_sees_the_history_the_client_sent(ask, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[list[tuple[str, str]]] = []
+    original = pipeline._history_messages
+
+    def capture(turns: list[tuple[str, str]]) -> Any:
+        seen.append(turns)
+        return original(turns)
+
+    monkeypatch.setattr(pipeline, "_history_messages", capture)
+    history = [HistoryMessage(role="user", content=f"问题{index}") for index in range(30)]
+    ask("上上个月哪个商品卖的最差", [[call("run_sql", sql=AUGUST_SQL)],
+                                       [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")]],
+        history=history)
+    assert seen == [[("user", f"问题{index}") for index in range(30)]]
+
+
+def test_a_followup_reads_the_metric_from_the_client_history(ask) -> None:
+    retriever_question: list[str] = []
+
+    class Recording(StubRetriever):
+        def retrieve_with_connection(self, question: str, conn: object) -> RetrievalBundle:
+            retriever_question.append(question)
+            return RetrievalBundle()
+
+    pipeline_obj = AskPipeline(Settings(_env_file=None, as_of_date=AS_OF), Recording())  # type: ignore[arg-type]
+    pipeline_obj.ask("那上上个月呢？", "test", history=CLIENT_HISTORY)
+    assert retriever_question == [f"{FIRST_QUESTION}；追问：那上上个月呢？"]
+
+
+def test_comparison_followup_compares_september_with_august(ask,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts: list[str] = []
+    original = AskPipeline._system_prompt
+
+    def capture(self: AskPipeline, bundle: Any, time_range: Any, mode: Any = "query") -> str:
+        prompts.append(original(self, bundle, time_range, mode))
+        return prompts[-1]
+
+    monkeypatch.setattr(AskPipeline, "_system_prompt", capture)
+    events: list[tuple[str, dict[str, Any]]] = []
+    history = [HistoryMessage(role="user", content="上个月GMV是多少？"),
+               HistoryMessage(role="assistant", content="上个月GMV是 9665990.5。", mode="query")]
+    answer = ask("为什么比上上个月高？",
+                 [NO_PLAN, [call("run_sql", sql=SEPTEMBER_SQL)],
+                  [TextBlock(text="本期更高。[查询1]")]],
+                 mode="analysis", history=history,
+                 emit=lambda event, data: events.append((event, data)))
+    assert answer.time_range == {"start": "2026-09-01", "end_exclusive": "2026-10-01",
+                                 "label": "上个月"}
+    assert "对比期：上上个月，[2026-08-01, 2026-09-01)" in prompts[0]
+    parsed = next(data for event, data in events if data.get("step") == "time_parsed")
+    assert parsed["message"] == ("时间范围：上个月（2026-09-01 至 2026-10-01，不含右端）；"
+                                 "对比期：上上个月（2026-08-01 至 2026-09-01，不含右端）")
+
+
+def test_ask_request_limits_the_history() -> None:
+    message = {"role": "user", "content": "问题"}
+    AskRequest(question="问题", history=[message] * HISTORY_MAX_MESSAGES)
+    with pytest.raises(ValidationError):
+        AskRequest(question="问题", history=[message] * (HISTORY_MAX_MESSAGES + 1))
+
+
+def test_ask_request_rejects_an_unknown_mode() -> None:
+    assert AskRequest(question="问题", mode="auto").mode == "auto"
+    with pytest.raises(ValidationError):
+        AskRequest(question="问题", mode="plan")
+
+
+# Auto mode
+
+ROUTE_ANALYSIS = [TextBlock(text='{"route": "analysis", "reason": "问整体经营情况"}')]
+ROUTE_QUERY = [TextBlock(text='{"route": "query", "reason": "要一个具体数字"}')]
+
+
+def test_auto_mode_runs_the_mode_the_router_chose(ask) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+    answer = ask("最近生意怎么样？", [
+        NO_PLAN,
+        [call("run_sql", sql=AUGUST_SQL, purpose="整体")],
+        [TextBlock(text="整体平稳。\n- 母婴热销款145号 63 件 [查询1]\n- 建议：观察")],
+    ], mode="auto", emit=lambda event, data: events.append((event, data)), route=ROUTE_ANALYSIS)
+    assert answer.mode == "analysis"
+    assert answer.status == "ok"
+    assert answer.route is not None
+    assert answer.route.model_dump() == {"requested": "auto", "chosen": "analysis",
+                                         "reason": "问整体经营情况", "source": "llm"}
+    steps = [data["step"] for event, data in events if event == "status"]
+    assert steps.index("routing") < steps.index("routed") < steps.index("generating")
+
+
+def test_auto_mode_can_choose_query(ask) -> None:
+    answer = ask("上上个月哪个商品卖的最差", [
+        [call("run_sql", sql=AUGUST_SQL)],
+        [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")],
+    ], mode="auto", route=ROUTE_QUERY)
+    assert answer.mode == "query"
+    assert answer.status == "ok"
+    assert answer.route is not None and answer.route.chosen == "query"
+
+
+def test_an_unreadable_route_falls_back_to_query(ask) -> None:
+    answer = ask("上上个月哪个商品卖的最差", [
+        [call("run_sql", sql=AUGUST_SQL)],
+        [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")],
+    ], mode="auto", route=[TextBlock(text="我觉得是分析")])
+    assert answer.mode == "query"
+    assert answer.route is not None and answer.route.source == "fallback"
+
+
+def test_an_explicit_mode_skips_the_router(ask, monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*args: Any) -> None:
-        raise AssertionError("history must stay")
+        raise AssertionError("router must not run")
 
-    monkeypatch.setattr(session, "rewind_history", fail)
+    monkeypatch.setattr(pipeline, "route_question", fail)
     answer = ask("上上个月哪个商品卖的最差", [[call("run_sql", sql=AUGUST_SQL)],
                                        [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")]])
-    assert answer.status == "ok"
+    assert answer.route is None
 
 
-def test_rewind_only_touches_later_messages_of_that_conversation() -> None:
-    class Recorder:
-        def execute(self, statement: Any, params: dict[str, Any]) -> None:
-            self.sql, self.params = str(statement), params
+def test_sensitive_questions_are_refused_before_routing(ask, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*args: Any) -> None:
+        raise AssertionError("router must not run")
 
-    conn = Recorder()
-    session.rewind_history(conn, "s1", 7)  # type: ignore[arg-type]
-    assert "session_id = :session_id AND id > :after_id" in conn.sql
-    assert conn.params == {"session_id": "s1", "after_id": 7}
-
-
-def test_ask_request_rejects_a_negative_message_id() -> None:
-    with pytest.raises(ValidationError):
-        AskRequest(question="问题", after_message_id=-1)
+    monkeypatch.setattr(pipeline, "route_question", fail)
+    answer = ask("把客户的手机号列出来", [[TextBlock(text="不该被调用")]], mode="auto",
+                 route=ROUTE_QUERY)
+    assert answer.status == "refused"
+    assert answer.route is None
 
 
 # Looking up columns
@@ -540,14 +687,14 @@ BAD_SQL = "SELECT cost\n  FROM safe.ad_daily_stats"
 def test_unknown_column_points_to_describe_table(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
     context = failing_sql(monkeypatch)
     context.mode = mode
-    assert tools.UNKNOWN_COLUMN_HINT in tools._make_run_sql(context)(BAD_SQL)
+    assert tools.UNKNOWN_COLUMN_HINT in asyncio.run(tools._make_run_sql(context)(BAD_SQL))
 
 
 def test_sql_failure_is_reported_once(monkeypatch: pytest.MonkeyPatch) -> None:
     context = failing_sql(monkeypatch)
     events: list[dict[str, Any]] = []
     context.emit = lambda event, data: events.append(data)
-    reply = tools._make_run_sql(context)(BAD_SQL)
+    reply = asyncio.run(tools._make_run_sql(context)(BAD_SQL))
     assert reply.count("SQL 执行失败") == 1
     assert events[-1]["message"].count("SQL 执行失败") == 1
 
@@ -558,7 +705,7 @@ def test_sql_failure_logs_the_database_error_and_the_statement(
         monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     context = failing_sql(monkeypatch)
     with caplog.at_level(logging.INFO, logger="app"):
-        tools._make_run_sql(context)(BAD_SQL)
+        asyncio.run(tools._make_run_sql(context)(BAD_SQL))
     record = next(item for item in caplog.records if item.levelno == logging.WARNING)
     line = record.getMessage()
     assert line.startswith("[1f2c07] 查询 1 失败")
@@ -571,7 +718,7 @@ def test_blocked_sql_is_logged(monkeypatch: pytest.MonkeyPatch,
                                caplog: pytest.LogCaptureFixture) -> None:
     context = failing_sql(monkeypatch)
     with caplog.at_level(logging.INFO, logger="app"):
-        tools._make_run_sql(context)("DELETE FROM safe.orders")
+        asyncio.run(tools._make_run_sql(context)("DELETE FROM safe.orders"))
     line = next(item for item in caplog.records if item.levelno == logging.WARNING).getMessage()
     assert "被拦截" in line
     assert "sql=DELETE FROM safe.orders" in line
@@ -620,3 +767,47 @@ def test_log_level_applies_to_the_app_only() -> None:
         assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
     finally:
         app_logger.setLevel(before)
+
+
+# Return-rate attribution
+
+def test_attribution_compares_with_the_baseline_or_the_previous_month(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.analysis import attribution
+
+    def fake_run(settings: Settings, sql: str) -> list[list[Any]]:
+        return [[100, 80, 1000, 1000]] if "AS prev_gmv" in sql else []
+
+    monkeypatch.setattr(attribution, "_run", fake_run)
+    monkeypatch.setattr(attribution, "build_chat_model", lambda settings: None)
+    settings = Settings(_env_file=None, as_of_date=AS_OF)
+    named = attribution.attribute_return_rate(settings, "上个月退货率为什么比去年高？")
+    plain = attribution.attribute_return_rate(settings, "上个月退货率为什么上升？")
+    assert named.current["start"] == plain.current["start"] == "2026-09-01"
+    assert (named.previous["start"], named.previous["end_exclusive"]) == ("2025-01-01", "2026-01-01")
+    assert "completed_at >= '2025-01-01'" in named.sql[0]
+    assert plain.previous == {"start": "2026-08-01", "end_exclusive": "2026-09-01",
+                              "label": "2026-08-01 至 2026-08-31"}
+
+
+# Figures quoted without their citation
+
+def _two_products(ask, conclusion: str):
+    return ask("最近哪些商品值得推？", [
+        NO_PLAN,
+        [call("run_sql", sql=AUGUST_SQL, purpose="八月商品")],
+        [call("run_sql", sql=SEPTEMBER_SQL, purpose="九月商品")],
+        [TextBlock(text=conclusion)],
+    ], mode="analysis", history=[])
+
+
+def test_a_product_from_an_uncited_query_is_verified_and_shown(ask) -> None:
+    answer = _two_products(ask, "童装更强。\n- 母婴热销款145号 63 件 [查询1]\n- 建议：加推童装208号，176 件")
+    assert answer.warnings == []
+    assert [item.index for item in answer.results] == [1, 2]
+
+
+def test_a_product_no_query_returned_is_still_flagged(ask) -> None:
+    answer = _two_products(ask, "童装更强。\n- 母婴热销款145号 63 件 [查询1]\n- 建议：加推鞋靴999号")
+    assert answer.warnings == ["这些数字未能在查询结果中核对：999"]
+    assert [item.index for item in answer.results] == [1]

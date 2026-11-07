@@ -28,6 +28,27 @@ class MetricNote(BaseModel):
 
 
 AskMode = Literal["query", "analysis"]
+# "auto" lets the router pick a mode; answers always carry the mode that ran.
+RequestMode = Literal["auto", "query", "analysis"]
+
+HISTORY_MAX_MESSAGES = 200
+HISTORY_MAX_CHARS = 4000
+
+
+class HistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=HISTORY_MAX_CHARS)
+    # The mode of an assistant reply, so the router knows how the last turn ran.
+    mode: AskMode | None = None
+
+
+class RouteInfo(BaseModel):
+    """How an "auto" question was routed."""
+
+    requested: RequestMode
+    chosen: AskMode
+    reason: str = ""
+    source: Literal["llm", "fallback"]
 
 
 class QueryResult(BaseModel):
@@ -36,6 +57,15 @@ class QueryResult(BaseModel):
     sql: str = ""
     table: TableBlock | None = None
     chart: ChartSpec | None = None
+    # The plan step that ran this query; None when analysis ran without a plan.
+    step_id: int | None = None
+
+
+class PlanStepInfo(BaseModel):
+    id: int
+    goal: str
+    origin: Literal["plan", "supplement"] = "plan"
+    status: Literal["pending", "running", "done", "failed"]
 
 
 class AnswerPayload(BaseModel):
@@ -57,15 +87,18 @@ class AnswerPayload(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     mode: AskMode = "query"
     results: list[QueryResult] = Field(default_factory=list)
-    message_id: int | None = None
+    route: RouteInfo | None = None
+    # The steps of a planned analysis; empty otherwise.
+    plan: list[PlanStepInfo] = Field(default_factory=list)
 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     session_id: str = Field(default="default", max_length=64)
-    mode: AskMode = "query"
-    # Set when re-asking: messages after this id leave the conversation first.
-    after_message_id: int | None = Field(default=None, ge=0)
+    mode: RequestMode = "query"
+    # The conversation so far, oldest first; the client keeps it, the server stores none.
+    history: list[HistoryMessage] = Field(default_factory=list,
+                                          max_length=HISTORY_MAX_MESSAGES)
 
 
 class SetupStep(BaseModel):

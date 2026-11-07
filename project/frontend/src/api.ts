@@ -5,6 +5,7 @@ import type {
   AnswerPayload,
   AttributionResult,
   CaseOut,
+  HistoryMessage,
   MetaInfo,
   SetupStatus,
   StreamEvent,
@@ -23,8 +24,8 @@ export interface AskOptions {
   /** Sent ahead of backend support; the current API ignores it. */
   model?: string;
   mode?: AskMode;
-  /** Re-asking: the backend drops the messages after this one first. */
-  afterMessageId?: number;
+  /** The conversation before this question, oldest first. */
+  history?: HistoryMessage[];
   signal?: AbortSignal;
 }
 
@@ -42,7 +43,7 @@ export async function askStream(
       session_id: sessionId,
       model: options.model,
       mode: options.mode,
-      after_message_id: options.afterMessageId,
+      history: options.history ?? [],
     }),
     signal: options.signal,
   });

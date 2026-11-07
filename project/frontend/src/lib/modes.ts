@@ -1,8 +1,14 @@
-export type AskMode = "query" | "analysis";
+/** The mode an answer ran in. */
+export type AnswerMode = "query" | "analysis";
+/** The mode a question is sent with; "auto" lets the backend choose. */
+export type AskMode = "auto" | AnswerMode;
 
-export const DEFAULT_MODE: AskMode = "query";
+export const DEFAULT_MODE: AskMode = "auto";
+
+const MODES: AskMode[] = ["auto", "query", "analysis"];
 
 export const MODE_OPTIONS: { id: AskMode; label: string; description: string }[] = [
+  { id: "auto", label: "自动", description: "根据问题自动选择查询或分析" },
   { id: "query", label: "查询", description: "查具体数字和排行，回答快" },
   { id: "analysis", label: "分析", description: "多查几组数据，给出判断和建议，耗时更长" },
 ];
@@ -12,7 +18,8 @@ const ANALYSIS_WORDS = /分析|怎么样|为什么|建议|结论|原因|有什�
 
 export function loadSavedMode(): AskMode {
   try {
-    return localStorage.getItem(STORAGE_KEY) === "analysis" ? "analysis" : DEFAULT_MODE;
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return MODES.find((mode) => mode === saved) ?? DEFAULT_MODE;
   } catch {
     return DEFAULT_MODE;
   }

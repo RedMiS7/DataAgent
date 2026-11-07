@@ -1,3 +1,11 @@
+import type { PlanStep } from "../types";
+
+/** A plan step with the client times it started and finished. */
+export interface PlanStepView extends PlanStep {
+  startedAt?: number;
+  endedAt?: number;
+}
+
 export interface ThinkingStep {
   step: string;
   message: string;
@@ -9,6 +17,8 @@ export interface Thinking {
   steps: ThinkingStep[];
   /** Model reasoning text. Stays empty until the backend sends `reasoning` events. */
   text: string;
+  /** The analysis plan, when the backend made one. */
+  plan?: PlanStepView[];
   startedAt: number;
   endedAt?: number;
 }
@@ -31,6 +41,24 @@ export function addStep(thinking: Thinking, step: string, message: string, now: 
 
 export function addReasoning(thinking: Thinking, delta: string): Thinking {
   return { ...thinking, text: thinking.text + delta };
+}
+
+/** A supplement resends the whole plan; steps already known keep their times. */
+export function setPlan(thinking: Thinking, plan: PlanStep[]): Thinking {
+  const known = new Map((thinking.plan ?? []).map((step) => [step.id, step]));
+  return { ...thinking, plan: plan.map((step) => ({ ...known.get(step.id), ...step })) };
+}
+
+export function updatePlanStep(thinking: Thinking, update: PlanStep, now: number): Thinking {
+  if (!thinking.plan) return thinking;
+  const plan = thinking.plan.map((step) => {
+    if (step.id !== update.id) return step;
+    const next: PlanStepView = { ...step, ...update };
+    if (update.status === "running") next.startedAt = now;
+    if (update.status === "done" || update.status === "failed") next.endedAt = now;
+    return next;
+  });
+  return { ...thinking, plan };
 }
 
 export function finishThinking(thinking: Thinking, now: number): Thinking {

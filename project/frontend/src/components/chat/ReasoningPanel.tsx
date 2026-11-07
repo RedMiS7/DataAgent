@@ -1,8 +1,30 @@
 import { useEffect, useState } from "react";
 import { DownOutlined } from "@ant-design/icons";
-import { formatSeconds, type Thinking } from "../../lib/reasoning";
+import { stepLabel, stepState } from "../../lib/plan";
+import { formatSeconds, type PlanStepView, type Thinking } from "../../lib/reasoning";
 
-const WARN_STEPS = new Set(["retrying", "summary_fallback", "declined"]);
+const WARN_STEPS = new Set(["retrying", "summary_fallback", "declined", "plan_fallback"]);
+
+function PlanList({ plan, running }: { plan: PlanStepView[]; running: boolean }) {
+  return (
+    <ol className="plan-steps" aria-label="分析计划">
+      {plan.map((step) => (
+        <li key={step.id} className={`plan-step is-${stepState(step.status, running)}`}>
+          <span className="plan-mark" aria-hidden="true" />
+          <span className="plan-goal">
+            第{step.id}步：{step.goal}
+            {step.origin === "supplement" && <span className="plan-tag">补查</span>}
+          </span>
+          <span className="plan-state">
+            {stepLabel(step.status, running)}
+            {step.startedAt !== undefined && step.endedAt !== undefined
+              && ` · ${formatSeconds(step.endedAt - step.startedAt)}`}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 interface Props {
   thinking: Thinking;
@@ -20,6 +42,8 @@ export default function ReasoningPanel({ thinking, running }: Props) {
   }, [running]);
 
   const open = toggled ?? running;
+  // Plan steps run at once, so the gap between two status lines is no step's duration.
+  const planned = Boolean(thinking.plan?.length);
   const elapsed = (thinking.endedAt ?? now) - thinking.startedAt;
   const stepCount = thinking.steps.length;
   const queryCount = new Set(
@@ -47,6 +71,7 @@ export default function ReasoningPanel({ thinking, running }: Props) {
 
       {open && (
         <div className="thinking-body">
+          {planned && thinking.plan && <PlanList plan={thinking.plan} running={running} />}
           <ol className="thinking-steps">
             {thinking.steps.map((step, index) => {
               const live = running && index === stepCount - 1;
@@ -57,7 +82,7 @@ export default function ReasoningPanel({ thinking, running }: Props) {
                   className={`thinking-step${live ? " live" : ""}${warn ? " warn" : ""}`}
                 >
                   <span className="thinking-step-text">{step.message}</span>
-                  {step.endedAt && (
+                  {step.endedAt && !planned && (
                     <span className="thinking-step-time">
                       {formatSeconds(step.endedAt - step.startedAt)}
                     </span>

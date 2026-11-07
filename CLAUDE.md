@@ -77,6 +77,8 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 - 模型连通检查：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli check_models`
 - 重建向量索引：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli build_index`
 - 评测：`cd project && ../.venv/bin/python eval/run_eval.py --mode all`，默认覆盖 `eval/results/latest.json`，可用 `--output` 改路径
+- 路由评测（只测自动模式的判断，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode routing --output <路径>`
+- 分析评测（只跑分析题，统计维度覆盖和耗时，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode analysis --output <路径>`；加 `--no-plan` 用原来的单 Agent 流程对比
 
 ## 编码规范
 

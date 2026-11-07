@@ -8,6 +8,7 @@ import ModelPicker from "./ModelPicker";
 
 const MAX_LENGTH = 500;
 const PLACEHOLDERS: Record<AskMode, string> = {
+  auto: "问问你的生意，例如：上个月 GMV 是多少？最近生意怎么样？",
   query: "问问你的生意，例如：上个月哪个商品退货率最高？",
   analysis: "说说想分析什么，例如：分析一下最近30天的销量",
 };

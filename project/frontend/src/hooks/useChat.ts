@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { askStream, sendFeedback } from "../api";
 import {
+  buildHistory,
   createConversation,
   deriveTitle,
-  lastMessageId,
   loadActiveId,
   loadConversations,
   newId,
@@ -19,9 +19,11 @@ import {
   addReasoning,
   addStep,
   finishThinking,
+  setPlan,
   startThinking,
+  updatePlanStep,
 } from "../lib/reasoning";
-import type { AnswerPayload } from "../types";
+import type { AnswerPayload, PlanStep } from "../types";
 
 function initialState(): { items: Conversation[]; activeId: string } {
   const now = Date.now();
@@ -83,8 +85,7 @@ export function useChat(): ChatApi {
   );
 
   const run = useCallback(
-    (conversationId: string, base: ChatMessage[], text: string, model: string, mode: AskMode,
-     afterMessageId?: number) => {
+    (conversationId: string, base: ChatMessage[], text: string, model: string, mode: AskMode) => {
       const now = Date.now();
       const user: ChatMessage = { id: newId("u"), role: "user", text, mode };
       const assistant: AssistantMessage = {
@@ -128,6 +129,16 @@ export function useChat(): ChatApi {
               ...message,
               thinking: addReasoning(message.thinking, String(data.delta ?? "")),
             }));
+          } else if (event === "plan") {
+            patch((message) => ({
+              ...message,
+              thinking: setPlan(message.thinking, (data.steps ?? []) as PlanStep[]),
+            }));
+          } else if (event === "step") {
+            patch((message) => ({
+              ...message,
+              thinking: updatePlanStep(message.thinking, data as unknown as PlanStep, time),
+            }));
           } else if (event === "answer") {
             patch((message) => ({
               ...message,
@@ -144,7 +155,7 @@ export function useChat(): ChatApi {
             }));
           }
         },
-        { model, mode, afterMessageId, signal: controller.signal },
+        { model, mode, history: buildHistory(base), signal: controller.signal },
       )
         .then(() => {
           // A stream that closes with no result must not stay in the loading state.
@@ -194,8 +205,7 @@ export function useChat(): ChatApi {
       const user = active.messages[index - 1];
       if (index < 1 || user.role !== "user") return;
       const kept = active.messages.slice(0, index - 1);
-      run(active.id, kept, user.text, model, mode ?? user.mode ?? DEFAULT_MODE,
-          lastMessageId(kept));
+      run(active.id, kept, user.text, model, mode ?? user.mode ?? DEFAULT_MODE);
     },
     [active, run, streamingId],
   );
@@ -208,7 +218,7 @@ export function useChat(): ChatApi {
       const original = active.messages[index];
       if (original?.role !== "user") return;
       const kept = active.messages.slice(0, index);
-      run(active.id, kept, trimmed, model, original.mode ?? DEFAULT_MODE, lastMessageId(kept));
+      run(active.id, kept, trimmed, model, original.mode ?? DEFAULT_MODE);
     },
     [active, run, streamingId],
   );

@@ -1,3 +1,5 @@
+import type { AnswerMode, AskMode } from "./lib/modes";
+
 export type ChartType = "line" | "bar" | "pie" | "table";
 
 export interface ChartSpec {
@@ -57,6 +59,30 @@ export interface QueryResult {
   sql: string;
   table: TableBlock | null;
   chart: ChartSpec | null;
+  /** The plan step that ran this query; null when analysis ran without a plan. */
+  step_id?: number | null;
+}
+
+export type PlanStepStatus = "pending" | "running" | "done" | "failed";
+
+export interface PlanStep {
+  id: number;
+  goal: string;
+  origin: "plan" | "supplement";
+  status: PlanStepStatus;
+}
+
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  mode?: AnswerMode;
+}
+
+export interface RouteInfo {
+  requested: AskMode;
+  chosen: AnswerMode;
+  reason: string;
+  source: "llm" | "fallback";
 }
 
 export interface AnswerPayload {
@@ -77,10 +103,12 @@ export interface AnswerPayload {
   degraded: boolean;
   warnings?: string[];
   /** Missing on answers saved before analysis mode existed. */
-  mode?: "query" | "analysis";
+  mode?: AnswerMode;
   results?: QueryResult[];
-  /** The answer's row in the conversation history kept by the backend. */
-  message_id?: number | null;
+  /** Set when the question was sent in auto mode. */
+  route?: RouteInfo | null;
+  /** The steps of a planned analysis; empty or missing otherwise. */
+  plan?: PlanStep[];
   /** Not sent by the backend yet; shown only when present. */
   model?: string;
 }
@@ -147,7 +175,7 @@ export interface AttributionResult {
   sql: string[];
 }
 
-export type StreamEvent = "status" | "reasoning" | "answer" | "error";
+export type StreamEvent = "status" | "reasoning" | "plan" | "step" | "answer" | "error";
 
 export interface StreamHandler {
   (event: StreamEvent, data: Record<string, unknown>): void;

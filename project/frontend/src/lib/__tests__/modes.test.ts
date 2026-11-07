@@ -12,22 +12,27 @@ function fakeStorage() {
 describe("saved mode", () => {
   beforeEach(() => vi.stubGlobal("localStorage", fakeStorage()));
 
-  it("defaults to query", () => {
-    expect(loadSavedMode()).toBe("query");
+  it("defaults to auto", () => {
+    expect(loadSavedMode()).toBe("auto");
   });
 
-  it("remembers the choice", () => {
-    saveMode("analysis");
-    expect(loadSavedMode()).toBe("analysis");
+  it.each(["auto", "query", "analysis"] as const)("remembers %s", (mode) => {
+    saveMode(mode);
+    expect(loadSavedMode()).toBe(mode);
   });
 
-  it("falls back to query when storage is blocked", () => {
+  it("ignores an unknown saved value", () => {
+    localStorage.setItem("dataagent.mode", "plan");
+    expect(loadSavedMode()).toBe("auto");
+  });
+
+  it("falls back to auto when storage is blocked", () => {
     vi.stubGlobal("localStorage", {
       getItem: () => {
         throw new Error("blocked");
       },
     });
-    expect(loadSavedMode()).toBe("query");
+    expect(loadSavedMode()).toBe("auto");
   });
 });
 

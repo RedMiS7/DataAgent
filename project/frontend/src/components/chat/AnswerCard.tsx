@@ -12,9 +12,10 @@ import { Tooltip } from "antd";
 import { formatNumber } from "../../lib/chart";
 import type { AssistantMessage } from "../../lib/conversations";
 import { downloadCsv } from "../../lib/csv";
+import { groupResults } from "../../lib/plan";
 import { suggestsAnalysis } from "../../lib/modes";
 import { parseAnalysisSummary, type SummaryPart } from "../../lib/summary";
-import type { AnswerPayload, QueryResult, TableBlock } from "../../types";
+import type { AnswerPayload, PlanStep, QueryResult, TableBlock } from "../../types";
 import ChartView from "../ChartView";
 import ResultTable from "../ResultTable";
 
@@ -164,13 +165,13 @@ function AnalysisSummaryView({ text, onCite }: { text: string; onCite: (index: n
   );
 }
 
-function ResultSwitch({ results, active, onPick }: {
+function ResultButtons({ results, active, onPick }: {
   results: QueryResult[];
   active: QueryResult;
   onPick: (index: number) => void;
 }) {
   return (
-    <div className="result-switch" role="group" aria-label="选择查询">
+    <>
       {results.map((result) => (
         <button
           key={result.index}
@@ -183,6 +184,37 @@ function ResultSwitch({ results, active, onPick }: {
           {result.purpose}
         </button>
       ))}
+    </>
+  );
+}
+
+function ResultSwitch({ results, plan, active, onPick }: {
+  results: QueryResult[];
+  plan: PlanStep[] | undefined;
+  active: QueryResult;
+  onPick: (index: number) => void;
+}) {
+  const groups = groupResults(results, plan);
+  if (groups.length === 1 && groups[0].step === null) {
+    return (
+      <div className="result-switch" role="group" aria-label="选择查询">
+        <ResultButtons results={results} active={active} onPick={onPick} />
+      </div>
+    );
+  }
+  return (
+    <div className="result-groups">
+      {groups.map(({ step, results: items }) => {
+        const label = step ? `第${step.id}步：${step.goal}` : "其他查询";
+        return (
+          <div className="result-group" key={step?.id ?? "rest"}>
+            <div className="result-group-label">{label}</div>
+            <div className="result-switch" role="group" aria-label={label}>
+              <ResultButtons results={items} active={active} onPick={onPick} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -191,6 +223,13 @@ function Meta({ answer }: { answer: AnswerPayload }) {
   const range = answer.time_range;
   return (
     <div className="answer-meta">
+      {answer.route && (
+        <Tooltip title={answer.route.reason || undefined}>
+          <span className={answer.route.source === "fallback" ? "warn" : undefined}>
+            自动判断：{answer.route.chosen === "analysis" ? "分析" : "查询"}
+          </span>
+        </Tooltip>
+      )}
       {range.label && (
         <span>{range.label}（{range.start} 至 {range.end_exclusive}，不含右端）</span>
       )}
@@ -259,7 +298,12 @@ export default function AnswerCard({
           ))}
           <div ref={resultsRef}>
             {activeResult && results.length > 1 && (
-              <ResultSwitch results={results} active={activeResult} onPick={setPicked} />
+              <ResultSwitch
+                results={results}
+                plan={answer.plan}
+                active={activeResult}
+                onPick={setPicked}
+              />
             )}
             <AnswerBody
               key={activeResult?.index ?? "answer"}

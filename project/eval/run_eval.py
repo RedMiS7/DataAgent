@@ -18,10 +18,13 @@ from app.vector import build_vector_store  # noqa: E402
 
 from eval.runner import (  # noqa: E402
     EvalReport,
+    evaluate_analysis,
     evaluate_attribution,
     evaluate_questions,
+    evaluate_routing,
     evaluate_security,
     load_questions,
+    load_routing_cases,
     merge_reports,
 )
 
@@ -44,16 +47,20 @@ def _print_report(name: str, report: EvalReport) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run DataAgent evaluation")
-    parser.add_argument("--mode", choices=["questions", "security", "attribution", "all"],
+    parser.add_argument("--mode",
+                        choices=["questions", "analysis", "routing", "security", "attribution",
+                                 "all"],
                         default="all")
+    parser.add_argument("--no-plan", action="store_true",
+                        help="analysis 模式下跳过规划，用单个 Agent 分析，用于和计划流程对比")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--output", type=Path, default=RESULT_DIR / "latest.json")
     args = parser.parse_args()
 
     settings = get_settings()
     model = build_chat_model(settings)
-    if model is None and args.mode in ("questions", "all"):
-        print("未配置大模型，无法运行问数评测。请在 project/.env 填写 LLM_API_KEY。",
+    if model is None and args.mode in ("questions", "analysis", "routing", "all"):
+        print("未配置大模型，无法运行问数或路由评测。请在 project/.env 填写 LLM_API_KEY。",
               file=sys.stderr)
         return 1
 
@@ -67,6 +74,18 @@ def main() -> int:
     if args.mode in ("questions", "all"):
         report = evaluate_questions(settings, pipeline, questions, args.limit)
         _print_report("问答评测", report)
+        reports.append(report)
+    if args.mode == "analysis":
+        report = evaluate_analysis(pipeline, questions, args.limit, use_plan=not args.no_plan)
+        _print_report("分析评测" + ("（不用计划）" if args.no_plan else ""), report)
+        durations = sorted(case.duration_ms for case in report.cases)
+        if durations:
+            print(f"  耗时：平均 {sum(durations) / len(durations) / 1000:.1f} 秒，"
+                  f"最长 {durations[-1] / 1000:.1f} 秒")
+        reports.append(report)
+    if args.mode in ("routing", "all"):
+        report = evaluate_routing(settings, load_routing_cases(), args.limit)
+        _print_report("路由评测", report)
         reports.append(report)
     if args.mode in ("attribution", "all"):
         report = evaluate_attribution(settings, questions, args.limit)

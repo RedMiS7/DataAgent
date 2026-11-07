@@ -100,7 +100,7 @@ def meta(request: Request) -> dict[str, Any]:
 @router.post("/ask", response_model=AnswerPayload)
 def ask(request: Request, payload: AskRequest) -> AnswerPayload:
     return _pipeline(request).ask(payload.question, payload.session_id, mode=payload.mode,
-                                  after_message_id=payload.after_message_id)
+                                  history=payload.history)
 
 
 @router.post("/ask/stream")
@@ -116,7 +116,7 @@ async def ask_stream(request: Request, payload: AskRequest) -> EventSourceRespon
         try:
             await loop.run_in_executor(None, pipeline.ask, payload.question,
                                        payload.session_id, emit, payload.mode,
-                                       payload.after_message_id)
+                                       payload.history)
         except Exception as exc:
             logger.exception("[%s] 问答异常", log_tag(payload.session_id))
             await queue.put(("error", {"message": f"服务异常：{exc}"}))

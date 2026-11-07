@@ -270,34 +270,158 @@
     "category": "analysis",
     "mode": "analysis",
     "question": "分析一下最近30天的销量，你能得出什么结论？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_dimensions": [
+      "整体",
+      "类目",
+      "商品"
+    ]
   },
   {
     "id": "n02",
     "category": "analysis",
     "mode": "analysis",
     "question": "最近生意怎么样？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_dimensions": [
+      "整体",
+      "渠道"
+    ]
   },
   {
     "id": "n03",
     "category": "analysis",
     "mode": "analysis",
     "question": "帮我看看退货情况，有什么问题吗？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_dimensions": [
+      "退款",
+      "商品"
+    ]
   },
   {
     "id": "n04",
     "category": "analysis",
     "mode": "analysis",
     "question": "下个月我应该重点推哪些商品？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_dimensions": [
+      "商品"
+    ]
   },
   {
     "id": "n05",
     "category": "analysis",
     "mode": "analysis",
     "question": "今天有什么需要我注意的？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_dimensions": [
+      "整体"
+    ]
+  },
+  {
+    "id": "n06",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "上个月GMV为什么比上上个月低？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "整体",
+      "类目",
+      "渠道"
+    ]
+  },
+  {
+    "id": "n07",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "最近30天广告投放效果怎么样，钱花得值吗？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "广告"
+    ]
+  },
+  {
+    "id": "n08",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "哪个渠道最值得加大投入？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "渠道"
+    ]
+  },
+  {
+    "id": "n09",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "本月退款为什么变多了？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "退款",
+      "商品"
+    ]
+  },
+  {
+    "id": "n10",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "最近物流有没有拖后腿？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "物流"
+    ]
+  },
+  {
+    "id": "n11",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "各类目最近表现怎么样，哪些在下滑？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "类目"
+    ]
+  },
+  {
+    "id": "n12",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "老客复购情况怎么样？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "客户"
+    ]
+  },
+  {
+    "id": "n13",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "上个月客单价为什么下降了？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "整体",
+      "渠道"
+    ]
+  },
+  {
+    "id": "n14",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "最近30天哪些地区卖得好，哪些地区需要加强？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "地区"
+    ]
+  },
+  {
+    "id": "n15",
+    "category": "analysis",
+    "mode": "analysis",
+    "question": "童装类目最近怎么样？",
+    "expected_sql": "",
+    "expected_dimensions": [
+      "类目",
+      "商品"
+    ]
   }
 ]

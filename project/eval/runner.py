@@ -26,6 +26,7 @@ EVAL_DIR = Path(__file__).resolve().parent
 
 # How MySQL and the validator say a column does not exist.
 FIELD_ERROR_MARKERS = ("Unknown column", "字段不存在")
+DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 
 @dataclass(slots=True)
@@ -54,6 +55,8 @@ class CaseResult:
     loose_passed: bool | None = None
     # What a failed case looks like, as a starting point for labelling its cause by hand.
     failure_hint: str = ""
+    # The reference SQL when it was built during the run, e.g. from the earlier turn.
+    reference_sql: str = ""
 
 
 @dataclass(slots=True)
@@ -274,15 +277,16 @@ def history_from_questions(history: list[str]) -> list[HistoryMessage]:
     return messages
 
 
-def reply_history(answer: AnswerPayload) -> HistoryMessage:
+def reply_history(answer: AnswerPayload, with_queries: bool = True) -> HistoryMessage:
     """The reply as the frontend's buildHistory sends it.
 
     Every answer is sent with its status; a failed one carries its reason instead
-    of a conclusion.
+    of a conclusion. ``with_queries=False`` leaves the SQL out, as the frontend did
+    before 2026-11-08, to measure what the SQL adds.
     """
     content = answer.summary or (answer.failure.message if answer.failure else "")
     queries: list[HistoryQuery] = []
-    if answer.status in ("ok", "empty", "partial"):
+    if with_queries and answer.status in ("ok", "empty", "partial"):
         pairs = ([(item.purpose, item.sql) for item in answer.results] if answer.results
                  else [(answer.question, answer.sql)] if answer.sql else [])
         queries = [HistoryQuery(purpose=purpose[:200], sql=sql[:4000])
@@ -293,26 +297,48 @@ def reply_history(answer: AnswerPayload) -> HistoryMessage:
                           status=answer.status, queries=queries, time_range=time_range)
 
 
-def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str) -> list[HistoryMessage]:
-    """Ask the earlier questions for real and keep the history the frontend would send."""
+def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str,
+              with_queries: bool = True) -> tuple[list[HistoryMessage], AnswerPayload | None]:
+    """Ask the earlier questions for real and keep the history the frontend would send,
+    with the last answer."""
     history: list[HistoryMessage] = []
+    last: AnswerPayload | None = None
     for turn in turns:
-        answer = pipeline.ask(turn, session_id, mode="query", history=history)
+        last = pipeline.ask(turn, session_id, mode="query", history=history)
         history.append(HistoryMessage(role="user", content=turn))
-        history.append(reply_history(answer))
-    return history
+        history.append(reply_history(last, with_queries))
+    return history, last
 
 
-def case_history(pipeline: AskPipeline, question: dict, session_id: str) -> list[HistoryMessage]:
-    """The history of a case: written out, asked for real, or placeholder replies."""
+def case_history(pipeline: AskPipeline, question: dict, session_id: str,
+                 with_queries: bool = True) -> tuple[list[HistoryMessage], AnswerPayload | None]:
+    """The history of a case: written out, asked for real, or placeholder replies; and
+    the answer to the last earlier question when it was asked for real."""
     if question.get("history_messages"):
-        return [HistoryMessage(**item) for item in question["history_messages"]]
+        return [HistoryMessage(**item) for item in question["history_messages"]], None
     if question.get("turns"):
-        return run_turns(pipeline, question["turns"], session_id)
-    return history_from_questions(question.get("history") or [])
+        return run_turns(pipeline, question["turns"], session_id, with_queries)
+    return history_from_questions(question.get("history") or []), None
 
 
-DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+def shift_dates(sql: str, dates: dict[str, str]) -> str:
+    """Replace each date in one pass, so a date shifted into another's place stays put."""
+    return DATE_PATTERN.sub(lambda match: dates.get(match.group(0), match.group(0)), sql)
+
+
+def previous_reference(previous: AnswerPayload | None, dates: dict[str, str]) -> tuple[str, str]:
+    """The earlier turn's SQL moved to the follow-up's period, or why there is none.
+
+    A follow-up that only changes the period must count the way the earlier turn did,
+    whatever that was, so the reference is that turn's own SQL with new dates.
+    """
+    if previous is None or previous.status not in ("ok", "empty") or not previous.sql:
+        return "", "上一轮没有查出结果"
+    if not set(DATE_PATTERN.findall(previous.sql)) & set(dates):
+        return "", "上一轮 SQL 里没有要替换的日期"
+    return shift_dates(previous.sql, dates), ""
+
+
 TABLE_PATTERN = re.compile(r"\bsafe\.(\w+)\b", re.IGNORECASE)
 
 
@@ -344,6 +370,8 @@ def failure_hint(category: str, answer: AnswerPayload, expected_sql: str,
         return "列数不同"
     if set(DATE_PATTERN.findall(expected_sql)) != set(DATE_PATTERN.findall(answer.sql)):
         return "日期不同"
+    if category == "consistency":
+        return "口径和上一轮不同"
     expected_tables = {name.lower() for name in TABLE_PATTERN.findall(expected_sql)}
     actual_tables = {name.lower() for name in TABLE_PATTERN.findall(answer.sql)}
     if expected_tables != actual_tables:
@@ -395,21 +423,31 @@ def score_analysis(answer: AnswerPayload, question: dict) -> tuple[bool, str]:
 
 
 def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: list[dict],
-                       limit: int | None = None) -> EvalReport:
+                       limit: int | None = None, history_sql: bool = True) -> EvalReport:
     report = EvalReport()
     selected = questions[:limit] if limit else questions
     for question in selected:
         category = question["category"]
         session_id = f"eval-{question['id']}"
-        history = case_history(pipeline, question, session_id)
+        history, previous = case_history(pipeline, question, session_id, history_sql)
         # Only the last question counts; earlier turns ran above, outside the probe.
         with ToolProbe().watching() as probe:
             answer = pipeline.ask(question["question"], session_id,
                                   mode=question.get("mode", "query"), history=history)
+        expected_sql = question.get("expected_sql", "")
+        if question.get("expect_from_previous"):
+            expected_sql, missing = previous_reference(previous, question["expect_from_previous"])
+            if missing:
+                report.add(CaseResult(id=question["id"], category=category,
+                                      question=question["question"], passed=False,
+                                      status=answer.status, sql=answer.sql,
+                                      detail=f"无法生成参考答案：{missing}",
+                                      failure_hint=missing))
+                continue
         expected_rows: list[list] = []
-        if question.get("expected_sql"):
+        if expected_sql:
             try:
-                expected_rows = execute_reference(settings, question["expected_sql"])
+                expected_rows = execute_reference(settings, expected_sql)
             except Exception as exc:
                 report.add(CaseResult(id=question["id"], category=category,
                                       question=question["question"], passed=False,
@@ -448,9 +486,9 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             field_errors=probe.field_errors,
             describe_calls=probe.describe_calls,
             loose_passed=loose,
+            reference_sql=expected_sql if question.get("expect_from_previous") else "",
             failure_hint="" if passed else failure_hint(
-                category, answer, question.get("expected_sql", ""), expected_rows, actual_rows,
-                probe, detail),
+                category, answer, expected_sql, expected_rows, actual_rows, probe, detail),
         ))
     return report
 
@@ -471,7 +509,7 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
     with patch:
         for question in selected[:limit] if limit else selected:
             session_id = f"eval-{question['id']}"
-            history = case_history(pipeline, question, session_id)
+            history, _ = case_history(pipeline, question, session_id)
             started = time.perf_counter()
             with ToolProbe().watching() as probe:
                 answer = pipeline.ask(question["question"], session_id,

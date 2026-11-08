@@ -68,6 +68,10 @@ def main() -> int:
     parser.add_argument("--no-plan", action="store_true",
                         help="analysis 模式下跳过规划，用单个 Agent 分析，用于和计划流程对比")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--category", action="append", default=None,
+                        help="只跑这些类别的问答题，可以写多次，例如 --category consistency")
+    parser.add_argument("--no-history-sql", action="store_true",
+                        help="多轮题的历史里不带上一轮的 SQL，用来和带 SQL 的结果对比")
     parser.add_argument("--output", type=Path, default=RESULT_DIR / "latest.json")
     args = parser.parse_args()
 
@@ -84,9 +88,12 @@ def main() -> int:
     pipeline = AskPipeline(settings, retriever)
 
     questions = load_questions()
+    if args.category:
+        questions = [item for item in questions if item["category"] in args.category]
     reports: list[EvalReport] = []
     if args.mode in ("questions", "all"):
-        report = evaluate_questions(settings, pipeline, questions, args.limit)
+        report = evaluate_questions(settings, pipeline, questions, args.limit,
+                                    history_sql=not args.no_history_sql)
         _print_report("问答评测", report)
         reports.append(report)
     if args.mode == "analysis":
@@ -118,6 +125,8 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps({
         "mode": args.mode,
+        "categories": args.category or [],
+        "history_sql": not args.no_history_sql,
         "as_of_date": settings.as_of_date.isoformat(),
         "llm_model": model.model if model else "",
         "summary": merged.as_dict(),

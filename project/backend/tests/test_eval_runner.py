@@ -22,8 +22,10 @@ from eval.runner import (  # noqa: E402
     ToolProbe,
     compare_rows_loose,
     failure_hint,
+    previous_reference,
     reply_history,
     report_metrics,
+    shift_dates,
 )
 
 
@@ -267,3 +269,89 @@ def test_new_cases_are_well_formed() -> None:
     assert len(route_ids) == len(set(route_ids))
     assert {item["expected_route"] for item in routes} == {"query", "analysis", "direct"}
     json.dumps(routes, ensure_ascii=False)
+
+
+SEPT_TO_AUG = {"2026-09-01": "2026-08-01", "2026-10-01": "2026-09-01"}
+REFUND_SQL = ("SELECT c.name, SUM(r.refund_amount) FROM safe.refunds r WHERE "
+              "r.requested_at >= '2026-09-01' AND r.requested_at < '2026-10-01 00:00:00'")
+
+
+def test_shift_dates_moves_each_date_once() -> None:
+    assert shift_dates(REFUND_SQL, SEPT_TO_AUG) == REFUND_SQL.replace(
+        "'2026-09-01'", "'2026-08-01'").replace("'2026-10-01 ", "'2026-09-01 ")
+
+
+def test_previous_reference_needs_a_result_with_the_dates() -> None:
+    ok = AnswerPayload(question="q", sql=REFUND_SQL)
+    assert previous_reference(ok, SEPT_TO_AUG) == (shift_dates(REFUND_SQL, SEPT_TO_AUG), "")
+    assert previous_reference(None, SEPT_TO_AUG) == ("", "上一轮没有查出结果")
+    failed = AnswerPayload(question="q", status="error", sql=REFUND_SQL)
+    assert previous_reference(failed, SEPT_TO_AUG) == ("", "上一轮没有查出结果")
+    other = AnswerPayload(question="q", sql="SELECT 1 FROM safe.orders WHERE d >= '2026-07-01'")
+    assert previous_reference(other, SEPT_TO_AUG) == ("", "上一轮 SQL 里没有要替换的日期")
+
+
+def _consistency_case() -> dict:
+    return {"id": "c01", "category": "consistency", "match": "loose",
+            "turns": ["上个月按退款申请时间算，各渠道的退款金额是多少？"],
+            "question": "那上上个月呢？", "expected_sql": "",
+            "expect_from_previous": SEPT_TO_AUG}
+
+
+def test_a_consistency_case_compares_with_the_earlier_sql_moved(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    ran: list[str] = []
+
+    def reference(settings: Any, sql: str) -> list[list]:
+        ran.append(sql)
+        return [["直播", 10.0]]
+
+    monkeypatch.setattr(runner, "execute_reference", reference)
+    first = AnswerPayload(question="上个月按退款申请时间算，各渠道的退款金额是多少？",
+                          summary="直播 12 元。", sql=REFUND_SQL)
+    pipeline = _FakePipeline({first.question: first,
+                              "那上上个月呢？": _answer("SELECT completed_at ...", [["直播", 9.0]])})
+
+    case = runner.evaluate_questions(None, pipeline, [_consistency_case()]).cases[0]  # type: ignore[arg-type]
+
+    assert ran == [shift_dates(REFUND_SQL, SEPT_TO_AUG)]
+    assert case.reference_sql == ran[0]
+    assert not case.passed
+    # The earlier SQL reached the model through the history.
+    assert pipeline.calls[-1][2][1].queries[0].sql == REFUND_SQL
+
+
+def test_the_history_can_leave_out_the_sql(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "execute_reference", lambda settings, sql: [["直播", 9.0]])
+    first = AnswerPayload(question="上个月按退款申请时间算，各渠道的退款金额是多少？",
+                          summary="直播 12 元。", sql=REFUND_SQL)
+    pipeline = _FakePipeline({first.question: first,
+                              "那上上个月呢？": _answer("SELECT ...", [["直播", 9.0]])})
+
+    case = runner.evaluate_questions(None, pipeline, [_consistency_case()],  # type: ignore[arg-type]
+                                     history_sql=False).cases[0]
+
+    assert case.passed
+    assert pipeline.calls[-1][2][1].queries == []
+
+
+def test_a_consistency_case_without_an_earlier_result_fails_clearly(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    first = AnswerPayload(question="上个月按退款申请时间算，各渠道的退款金额是多少？",
+                          status="error")
+    pipeline = _FakePipeline({first.question: first,
+                              "那上上个月呢？": _answer("SELECT ...", [["直播", 9.0]])})
+
+    case = runner.evaluate_questions(None, pipeline, [_consistency_case()]).cases[0]  # type: ignore[arg-type]
+
+    assert not case.passed and case.failure_hint == "上一轮没有查出结果"
+
+
+def test_consistency_cases_are_well_formed() -> None:
+    cases = [item for item in runner.load_questions() if item["category"] == "consistency"]
+    assert len(cases) >= 5
+    for item in cases:
+        assert item["turns"] and item["match"] == "loose" and not item["expected_sql"]
+        assert all(len(key) == 10 and len(value) == 10
+                   for key, value in item["expect_from_previous"].items())
+

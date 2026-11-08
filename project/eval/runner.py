@@ -88,9 +88,9 @@ class ToolProbe:
         real_execute = tools.execute_sql
         real_describe = tools.describe_tables
 
-        def validate(sql: str, max_rows: int) -> Any:
+        def validate(sql: str, *args: Any, **kwargs: Any) -> Any:
             try:
-                result = real_validate(sql, max_rows)
+                result = real_validate(sql, *args, **kwargs)
             except SQLValidationError as exc:
                 self._record("validate", False, str(exc))
                 raise

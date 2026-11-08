@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..config import Settings
 from ..db.engine import app_connection, business_connection
 from ..nl2sql.executor import ExecutionResult, SQLExecutionError, execute_sql
-from ..safety.validator import SQLValidationError, validate_and_limit
+from ..safety.validator import Columns, SQLValidationError, unknown_column_hint, validate_and_limit
 from ..semantic import repository
 from ..semantic.models import RetrievalBundle, SchemaItem
 from ..semantic.retriever import SemanticRetriever
@@ -30,6 +32,14 @@ ANALYSIS_MAX_QUERIES = 10
 QUERY_LIMIT_MESSAGE = "查询次数已用完，不要再调用 run_sql，请基于已有结果作答。"
 STEP_LIMIT_MESSAGE = "这一步的查询次数已用完，不要再调用 run_sql，用一两句话说明这一步看到了什么。"
 UNKNOWN_COLUMN_HINT = "字段名不对。先调用 describe_table 查看这张表的真实字段，再重写 SQL。"
+FAILURE_LIMIT_MESSAGE = ("SQL 已经连续失败 {count} 次。不要再调用 run_sql，"
+                         "直接告诉用户这次没有查出来，并说明最后一次失败的原因。")
+MYSQL_UNKNOWN_COLUMN = re.compile(r"Unknown column '([^']+)'")
+
+# The real columns of each business database, read on first use. A schema change
+# needs a restart, like the semantic layer.
+_columns_cache: dict[str, Columns] = {}
+_columns_lock = threading.Lock()
 
 READ_ONLY_PERMISSION = PermissionDecision(
     behavior=PermissionBehavior.ALLOW,
@@ -146,9 +156,38 @@ def _make_search(context: AgentRunContext) -> Callable[[str], str]:
     return search_semantic
 
 
+def known_columns(settings: Settings) -> Columns | None:
+    """The real columns of the business database, as {table: [column]}; None when they
+    cannot be read, and SQL then runs without the column check."""
+    key = f"{settings.mysql_host}:{settings.mysql_port}/{settings.mysql_business_db}"
+    with _columns_lock:
+        if key in _columns_cache:
+            return _columns_cache[key]
+        try:
+            with business_connection(settings) as conn:
+                raw = repository.fetch_table_columns(conn)
+        except SQLAlchemyError as exc:
+            logger.warning("读取字段失败，本次不做字段校验 error=%s", exc)
+            return None
+        columns = {table: [name for name, _ in items] for table, items in raw.items()}
+        _columns_cache[key] = columns
+        return columns
+
+
+def _column_hint(settings: Settings, sql: str, message: str) -> str:
+    """Close matches and the real columns for MySQL's "Unknown column" error."""
+    match = MYSQL_UNKNOWN_COLUMN.search(message)
+    columns = known_columns(settings)
+    if match is None or not columns:
+        return ""
+    return unknown_column_hint(sql, match.group(1), columns)
+
+
 def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
                   step_limit: int | None = None) -> Callable[..., Any]:
     step_reserved = 0
+    # Failures since the last query that ran; past the limit the model must stop trying.
+    failures_in_row = 0
 
     async def run_sql(sql: str, purpose: str = "") -> str:
         """执行一条只读 SQL 并返回结果预览。
@@ -157,8 +196,13 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             sql: 单条 MySQL SELECT 语句，只能查询 safe 库。
             purpose: 这条查询要看什么，一句中文，例如“本期与上期整体对比”。
         """
-        nonlocal step_reserved
+        nonlocal step_reserved, failures_in_row
         analysis = context.mode == "analysis"
+        failure_limit = context.settings.sql_max_retry
+        if failures_in_row >= failure_limit:
+            logger.info("[%s] SQL 已连续失败 %d 次，未执行 sql=%s", context.log_tag,
+                        failures_in_row, _one_line(sql))
+            return FAILURE_LIMIT_MESSAGE.format(count=failures_in_row)
         if step_limit is not None and step_reserved >= step_limit:
             logger.info("[%s] 第 %s 步查询次数已用完，未执行 sql=%s", context.log_tag, step_id,
                         _one_line(sql))
@@ -175,16 +219,19 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         context.attempts += 1
         if not analysis:
             context.emit("status", {"step": "validating", "message": "正在校验 SQL 安全性"})
+        columns = await asyncio.to_thread(known_columns, context.settings)
         try:
-            safe_sql = validate_and_limit(sql, context.settings.sql_max_rows)
+            safe_sql = validate_and_limit(sql, context.settings.sql_max_rows, columns)
         except SQLValidationError as exc:
             message = str(exc)
             context.errors.append(message)
             context.failed_sql = sql
-            logger.warning("[%s] 查询 %d 被拦截 reason=%s sql=%s", context.log_tag, attempt, message,
-                           _one_line(sql))
-            context.emit("status", {"step": "retrying", "message": f"SQL 被拦截：{message}"})
-            return f"SQL 校验失败：{message}"
+            failures_in_row += 1
+            logger.warning("[%s] 查询 %d 被拦截 reason=%s sql=%s", context.log_tag, attempt,
+                           _one_line(message), _one_line(sql))
+            context.emit("status", {"step": "retrying",
+                                    "message": f"{prefix}SQL 被拦截：{message.splitlines()[0]}"})
+            return _with_limit(f"SQL 校验失败：{message}", failures_in_row, failure_limit)
 
         if not analysis:
             context.emit("status", {"step": "executing", "message": "正在执行查询"})
@@ -201,11 +248,15 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             context.failed_sql = safe_sql.sql
             logger.warning("[%s] 查询 %d 失败 error=%s sql=%s", context.log_tag, attempt,
                            _database_error(exc), _one_line(safe_sql.sql))
+            failures_in_row += 1
             context.emit("status", {"step": "retrying", "message": f"{prefix}{message}"})
             if "Unknown column" in message:
-                return f"{message}\n{UNKNOWN_COLUMN_HINT}"
-            return message
+                hint = await asyncio.to_thread(_column_hint, context.settings, safe_sql.sql,
+                                               message)
+                message = f"{message}\n{hint or UNKNOWN_COLUMN_HINT}"
+            return _with_limit(message, failures_in_row, failure_limit)
 
+        failures_in_row = 0
         context.executions.append(execution)
         context.purposes.append(purpose)
         context.step_ids.append(step_id)
@@ -230,6 +281,13 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         return _json(preview)
 
     return run_sql
+
+
+def _with_limit(message: str, failures: int, limit: int) -> str:
+    """The error, and at the limit, the instruction to stop trying."""
+    if failures < limit:
+        return message
+    return f"{message}\n{FAILURE_LIMIT_MESSAGE.format(count=failures)}"
 
 
 def _make_decline(context: AgentRunContext) -> Callable[[str], str]:

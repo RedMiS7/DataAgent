@@ -53,6 +53,16 @@ def test_the_router_input_labels_each_reply_with_its_mode() -> None:
     )
 
 
+def test_the_router_input_says_when_a_reply_found_nothing() -> None:
+    history = [
+        HistoryMessage(role="user", content="上个月各省份的退款金额？"),
+        HistoryMessage(role="assistant", content="超过 120 秒还没有查到数据。", mode="query",
+                       status="error"),
+    ]
+    assert "助手（查询模式）：（这一轮没有查到结果：超过 120 秒还没有查到数据。）" in \
+        build_router_input("上个月订单数？", history)
+
+
 def test_the_router_input_without_history() -> None:
     assert build_router_input("上个月 GMV", []).startswith("对话记录（从早到晚）：\n（无）")
 

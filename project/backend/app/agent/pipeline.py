@@ -40,10 +40,11 @@ from ..semantic.retriever import SemanticRetriever
 from . import session
 from .answer import (
     build_metric_notes,
+    fill_missing_replies,
+    history_content,
     normalize_citations,
     recommend_chart,
     select_execution,
-    strip_citations,
     template_summary,
     time_range_warning,
     unverified_numbers,
@@ -201,9 +202,9 @@ def extract_text(message: Msg) -> str:
 
 
 def history_pairs(history: list[HistoryMessage]) -> list[tuple[str, str]]:
-    """The client's history as (role, text), without the citation marks of analysis answers."""
-    return [(item.role, strip_citations(item.content) if item.role == "assistant" else item.content)
-            for item in history]
+    """The client's history as (role, text): replies without citation marks, and a
+    reply that found nothing saying so."""
+    return [(item.role, history_content(item)) for item in history]
 
 
 def _uncited_sources(summary: str, question: str, executions: list[ExecutionResult],
@@ -263,10 +264,15 @@ class AskPipeline:
         trace = CallTrace()
         question = question.strip()
         tag = session.log_tag(session_id)
-        client_history = history or []
+        sent = history or []
+        # Router, planner and agent all read this one, so every question has a reply.
+        client_history = fill_missing_replies(sent)
         turns = history_pairs(client_history)
         logger.info("[%s] 问答开始 mode=%s history=%d question=%r", tag, mode,
-                    len(client_history), question)
+                    len(sent), question)
+        if len(client_history) > len(sent):
+            logger.info("[%s] 历史里有 %d 个问题没有回答，已补上占位回答", tag,
+                        len(client_history) - len(sent))
 
         with app_connection(self.settings) as conn:
             emit("status", {"step": "understanding", "message": "正在解析时间并理解问题"})

@@ -92,6 +92,8 @@ export interface HistoryMessage {
   role: "user" | "assistant";
   content: string;
   mode?: AnswerMode;
+  /** How a reply ended; "stopped" means the user stopped it before an answer. */
+  status?: AnswerStatus | "stopped";
 }
 
 export interface RouteInfo {

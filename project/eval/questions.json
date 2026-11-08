@@ -461,7 +461,7 @@
     "id": "t04",
     "category": "multiturn",
     "match": "loose",
-    "note": "上一轮失败：前端只发了用户问题、没有回答，模型只能回答最后一个问题",
+    "note": "上一轮失败：旧前端只发了用户问题、没有回答，后端要补上占位回答，模型只能回答最后一个问题",
     "history_messages": [
       {
         "role": "user",
@@ -481,6 +481,26 @@
     ],
     "question": "那上上个月呢？",
     "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01'"
+  },
+  {
+    "id": "t06",
+    "category": "multiturn",
+    "match": "loose",
+    "note": "上一轮失败：前端连同失败原因一起发送回答（第 2 步之后的写法），模型只能回答最后一个问题",
+    "history_messages": [
+      {
+        "role": "user",
+        "content": "上个月各省份的退款金额是多少？"
+      },
+      {
+        "role": "assistant",
+        "content": "SQL 试了 3 次都没有成功。最后一次的原因：数据库里没有“o.refund_amount”这个字段。",
+        "mode": "query",
+        "status": "error"
+      }
+    ],
+    "question": "上个月的订单数是多少？",
+    "expected_sql": "SELECT COUNT(DISTINCT o.id) FROM safe.orders o WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01'"
   },
   {
     "id": "d01",

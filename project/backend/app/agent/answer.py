@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-from ..api.schemas import ChartSpec, MetricNote
+from ..api.schemas import ChartSpec, HistoryMessage, MetricNote
 from ..nl2sql.executor import ExecutionResult
 from ..nl2sql.time_parser import TimeRange
 from ..semantic.models import RetrievalBundle
@@ -166,6 +166,37 @@ def normalize_citations(text: str, query_count: int) -> tuple[str, list[int]]:
 
 def strip_citations(text: str) -> str:
     return NORMALIZED_CITATION.sub("", text)
+
+
+NO_REPLY = "（这一轮没有得到回答）"
+
+
+def fill_missing_replies(history: list[HistoryMessage]) -> list[HistoryMessage]:
+    """Give every earlier question a reply.
+
+    A question followed by another question, with no reply between them, reads as
+    still open, and the model answers it along with the current one.
+    """
+    filled: list[HistoryMessage] = []
+    for message in history:
+        if message.role == "user" and filled and filled[-1].role == "user":
+            filled.append(HistoryMessage(role="assistant", content=NO_REPLY))
+        filled.append(message)
+    if filled and filled[-1].role == "user":
+        filled.append(HistoryMessage(role="assistant", content=NO_REPLY))
+    return filled
+
+
+def history_content(message: HistoryMessage) -> str:
+    """An earlier message as the model reads it; a reply that found nothing says so."""
+    if message.role == "user":
+        return message.content
+    text = strip_citations(message.content).strip()
+    if message.status == "stopped":
+        return "（用户中途停止了这一轮，没有回答）"
+    if message.status in ("error", "blocked"):
+        return f"（这一轮没有查到结果：{text}）" if text else "（这一轮没有查到结果）"
+    return text
 
 
 def _row_numbers(rows: list[list[Any]]) -> list[float]:

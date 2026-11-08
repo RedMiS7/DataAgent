@@ -194,11 +194,53 @@ describe("buildHistory", () => {
     ]);
   });
 
-  it("leaves out replies that stopped or failed", () => {
+  it("keeps replies that stopped or failed, so no question is left open", () => {
     expect(buildHistory([user("甲"), stopped, user("乙"), failed])).toEqual([
       { role: "user", content: "甲" },
+      { role: "assistant", content: "", status: "stopped" },
       { role: "user", content: "乙" },
+      { role: "assistant", content: "失败", status: "error" },
     ]);
+  });
+
+  it("sends the reason of a failed answer and the status of every answer", () => {
+    const failedAnswer: ChatMessage = {
+      id: "f",
+      role: "assistant",
+      state: "done",
+      thinking: startThinking(NOW),
+      answer: {
+        summary: "",
+        mode: "query",
+        status: "error",
+        failure: { kind: "sql_failed", message: "SQL 试了 3 次都没有成功。", suggestion: "" },
+      } as never,
+    };
+    const partial: ChatMessage = {
+      id: "p",
+      role: "assistant",
+      state: "done",
+      thinking: startThinking(NOW),
+      answer: { summary: "共 3 行。", mode: "analysis", status: "partial" } as never,
+    };
+    expect(buildHistory([user("甲"), failedAnswer, user("乙"), partial])).toEqual([
+      { role: "user", content: "甲" },
+      { role: "assistant", content: "SQL 试了 3 次都没有成功。", mode: "query", status: "error" },
+      { role: "user", content: "乙" },
+      { role: "assistant", content: "共 3 行。", mode: "analysis", status: "partial" },
+    ]);
+  });
+
+  it("leaves out a reply that is still streaming", () => {
+    const streaming: ChatMessage = {
+      id: "w", role: "assistant", state: "streaming", thinking: startThinking(NOW),
+    };
+    expect(buildHistory([user("甲"), streaming])).toEqual([{ role: "user", content: "甲" }]);
+  });
+
+  it("cuts a reply to the length the backend accepts", () => {
+    const long: ChatMessage = { ...failed, error: "错".repeat(5000) };
+    expect(buildHistory([user("甲"), long])[1].content).toHaveLength(4000);
   });
 
   it("treats answers saved before modes existed as query answers", () => {

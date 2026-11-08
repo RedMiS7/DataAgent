@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from app.agent import tools
-from app.api.schemas import AnswerPayload, HistoryMessage, TableBlock
+from app.api.schemas import AnswerPayload, Failure, HistoryMessage, TableBlock
 from app.nl2sql.executor import SQLExecutionError
 from app.safety.validator import SQLValidationError
 
@@ -91,10 +91,12 @@ def test_probe_restores_the_tools_afterwards(monkeypatch: pytest.MonkeyPatch) ->
 def test_reply_history_mirrors_the_frontend() -> None:
     ok = AnswerPayload(question="q", summary="上个月 GMV 为 100 元。", mode="query")
     assert reply_history(ok) == HistoryMessage(role="assistant", content="上个月 GMV 为 100 元。",
-                                               mode="query")
-    assert reply_history(AnswerPayload(question="q", status="error", summary="")) is None
-    assert reply_history(AnswerPayload(question="q", status="blocked", summary="被拦截")) is None
-    assert reply_history(AnswerPayload(question="q", status="empty", summary="")) is None
+                                               mode="query", status="ok")
+    failed = AnswerPayload(question="q", status="error", summary="",
+                           failure=Failure(kind="timeout", message="超过 120 秒还没有查到数据。"))
+    assert reply_history(failed) == HistoryMessage(
+        role="assistant", content="超过 120 秒还没有查到数据。", mode="query", status="error")
+    assert reply_history(AnswerPayload(question="q", status="empty", summary="")).content == ""
 
 
 def _answer(sql: str = "", rows: list[list] | None = None, status: str = "ok") -> AnswerPayload:

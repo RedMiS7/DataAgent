@@ -139,23 +139,46 @@ export function restoreConversations(
   return { items: [fresh, ...stored], activeId: fresh.id };
 }
 
+/** The backend rejects longer history messages. */
+const HISTORY_MAX_CHARS = 4000;
+
+/** A reply as the backend reads it; failed and stopped replies say how they ended. */
+function replyHistory(message: AssistantMessage): HistoryMessage | null {
+  const { answer } = message;
+  if (message.state === "done" && answer) {
+    const reply: HistoryMessage = {
+      role: "assistant",
+      content: (answer.summary || answer.failure?.message || "").slice(0, HISTORY_MAX_CHARS),
+      mode: answer.mode ?? "query",
+    };
+    // Answers saved before statuses were sent have none; the backend treats them as normal.
+    if (answer.status) reply.status = answer.status;
+    return reply;
+  }
+  if (message.state === "error") {
+    return { role: "assistant", content: (message.error ?? "").slice(0, HISTORY_MAX_CHARS),
+             status: "error" };
+  }
+  if (message.state === "stopped") {
+    return { role: "assistant", content: "", status: "stopped" };
+  }
+  // Still streaming: not part of the conversation yet.
+  return null;
+}
+
 /**
- * Where the backend history should end when `kept` is all that remains of a conversation.
- * Undefined means unknown: the answer was saved before message ids existed.
+ * The conversation sent with each question. Every question keeps its reply, including
+ * replies that failed or stopped; a question without one reads as still open.
  */
-/** The conversation sent with each question; replies that failed or stopped are left out. */
 export function buildHistory(messages: ChatMessage[]): HistoryMessage[] {
   const history: HistoryMessage[] = [];
   for (const message of messages) {
     if (message.role === "user") {
       history.push({ role: "user", content: message.text });
-    } else if (message.state === "done" && message.answer?.summary) {
-      history.push({
-        role: "assistant",
-        content: message.answer.summary,
-        mode: message.answer.mode ?? "query",
-      });
+      continue;
     }
+    const reply = replyHistory(message);
+    if (reply) history.push(reply);
   }
   return history;
 }

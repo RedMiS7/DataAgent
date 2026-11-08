@@ -12,6 +12,8 @@ import pytest
 from agentscope.message import TextBlock, ToolCallBlock
 from app.agent import pipeline, session, tools
 from app.agent.answer import (
+    NO_REPLY,
+    fill_missing_replies,
     normalize_citations,
     select_execution,
     strip_citations,
@@ -452,11 +454,57 @@ def test_the_model_sees_the_history_the_client_sent(ask, monkeypatch: pytest.Mon
         return original(turns)
 
     monkeypatch.setattr(pipeline, "_history_messages", capture)
-    history = [HistoryMessage(role="user", content=f"问题{index}") for index in range(30)]
+    history = [HistoryMessage(role="user" if index % 2 == 0 else "assistant",
+                              content=f"消息{index}") for index in range(30)]
     ask("上上个月哪个商品卖的最差", [[call("run_sql", sql=AUGUST_SQL)],
                                        [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")]],
         history=history)
-    assert seen == [[("user", f"问题{index}") for index in range(30)]]
+    assert seen == [[("user" if index % 2 == 0 else "assistant", f"消息{index}")
+                     for index in range(30)]]
+
+
+def test_a_question_without_a_reply_gets_a_placeholder(ask, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[list[tuple[str, str]]] = []
+    original = pipeline._history_messages
+
+    def capture(turns: list[tuple[str, str]]) -> Any:
+        seen.append(turns)
+        return original(turns)
+
+    monkeypatch.setattr(pipeline, "_history_messages", capture)
+    # An older client sent only the question of a turn that failed.
+    ask("上上个月哪个商品卖的最差", [[call("run_sql", sql=AUGUST_SQL)],
+                                       [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")]],
+        history=[HistoryMessage(role="user", content="上个月各省份的退款金额是多少？")])
+    assert seen == [[("user", "上个月各省份的退款金额是多少？"), ("assistant", NO_REPLY)]]
+
+
+def test_questions_in_a_row_each_get_a_reply() -> None:
+    history = [HistoryMessage(role="user", content="甲"), HistoryMessage(role="user", content="乙"),
+               HistoryMessage(role="assistant", content="答乙", mode="query")]
+    assert [(item.role, item.content) for item in fill_missing_replies(history)] == [
+        ("user", "甲"), ("assistant", NO_REPLY), ("user", "乙"), ("assistant", "答乙")]
+    assert fill_missing_replies([]) == []
+
+
+def test_a_failed_or_stopped_reply_says_it_found_nothing() -> None:
+    history = [
+        HistoryMessage(role="user", content="甲"),
+        HistoryMessage(role="assistant", content="SQL 试了 3 次都没有成功。", status="error",
+                       mode="query"),
+        HistoryMessage(role="user", content="乙"),
+        HistoryMessage(role="assistant", content="", status="stopped"),
+        HistoryMessage(role="user", content="丙"),
+        HistoryMessage(role="assistant", content="", status="error"),
+        HistoryMessage(role="user", content="丁"),
+        HistoryMessage(role="assistant", content="只查到一部分 [查询1]", status="partial"),
+    ]
+    assert history_pairs(history) == [
+        ("user", "甲"), ("assistant", "（这一轮没有查到结果：SQL 试了 3 次都没有成功。）"),
+        ("user", "乙"), ("assistant", "（用户中途停止了这一轮，没有回答）"),
+        ("user", "丙"), ("assistant", "（这一轮没有查到结果）"),
+        ("user", "丁"), ("assistant", "只查到一部分"),
+    ]
 
 
 def test_a_followup_reads_the_metric_from_the_client_history(ask) -> None:

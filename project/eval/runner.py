@@ -274,15 +274,15 @@ def history_from_questions(history: list[str]) -> list[HistoryMessage]:
     return messages
 
 
-def reply_history(answer: AnswerPayload) -> HistoryMessage | None:
-    """The reply as the frontend's buildHistory sends it; None when it sends nothing.
+def reply_history(answer: AnswerPayload) -> HistoryMessage:
+    """The reply as the frontend's buildHistory sends it.
 
-    The backend reports "blocked" and "error" as an error event, and the frontend
-    leaves such replies, and replies without a conclusion, out of the history.
+    Every answer is sent with its status; a failed one carries its reason instead
+    of a conclusion.
     """
-    if answer.status in ("blocked", "error") or not answer.summary:
-        return None
-    return HistoryMessage(role="assistant", content=answer.summary, mode=answer.mode)
+    content = answer.summary or (answer.failure.message if answer.failure else "")
+    return HistoryMessage(role="assistant", content=content[:4000], mode=answer.mode,
+                          status=answer.status)
 
 
 def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str) -> list[HistoryMessage]:
@@ -291,9 +291,7 @@ def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str) -> list[
     for turn in turns:
         answer = pipeline.ask(turn, session_id, mode="query", history=history)
         history.append(HistoryMessage(role="user", content=turn))
-        reply = reply_history(answer)
-        if reply is not None:
-            history.append(reply)
+        history.append(reply_history(answer))
     return history
 
 

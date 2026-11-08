@@ -13,7 +13,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 
 from ..api.schemas import AskMode, HistoryMessage
-from .answer import strip_citations
+from .answer import history_content, strip_citations
 from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,8 @@ def _speaker(message: HistoryMessage) -> str:
 
 
 def build_router_input(question: str, history: list[HistoryMessage]) -> str:
-    lines = [f"{_speaker(item)}：{strip_citations(item.content).strip()}" for item in history]
+    lines = [f"{_speaker(item)}：{strip_citations(history_content(item)).strip()}"
+             for item in history]
     record = "\n".join(lines) if lines else "（无）"
     return f"对话记录（从早到晚）：\n{record}\n\n最后一个问题：{question}"
 

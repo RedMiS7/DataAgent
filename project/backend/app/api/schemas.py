@@ -35,11 +35,17 @@ HISTORY_MAX_MESSAGES = 200
 HISTORY_MAX_CHARS = 4000
 
 
+# How an earlier reply ended; "stopped" means the user stopped it before an answer.
+HistoryStatus = Literal["ok", "empty", "partial", "refused", "blocked", "error", "stopped"]
+
+
 class HistoryMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=HISTORY_MAX_CHARS)
     # The mode of an assistant reply, so the router knows how the last turn ran.
     mode: AskMode | None = None
+    # Failed and stopped replies are sent too, so every question has a reply.
+    status: HistoryStatus | None = None
 
 
 class RouteInfo(BaseModel):

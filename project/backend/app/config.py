@@ -46,7 +46,16 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: str = ""
     llm_temperature: float = 0.0
+    # One model call; a whole question has its own limit below.
     llm_timeout_seconds: float = 90.0
+    # Output tokens of one model call. At 1024 a long analysis SQL was cut off
+    # mid-statement; deepseek-chat allows up to 8192.
+    llm_max_tokens: int = 8192
+    # A whole question, from the first model call to the answer. Past it, the
+    # queries done so far are shown as a partial answer.
+    ask_timeout_seconds: float = 120.0
+    # Analysis took up to 81 seconds in the 2026-11-07 evaluation.
+    analysis_timeout_seconds: float = 180.0
 
     embedding_provider: str = "qwen"
     embedding_endpoint: str = ""

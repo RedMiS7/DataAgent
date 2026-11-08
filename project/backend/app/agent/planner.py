@@ -294,7 +294,9 @@ async def _run_step(model: ChatModelBase, context: AgentRunContext, task: Analys
         model=model,
         toolkit=build_toolkit(context, step.id, STEP_MAX_QUERIES),
         middlewares=context.trace.middlewares(),
-        react_config=ReActConfig(max_iters=task.step_max_iters),
+        # The question's time limit cancels the steps; the cancel must not be swallowed.
+        react_config=ReActConfig(max_iters=task.step_max_iters,
+                                 interruption_raise_cancelled_error=True),
         injection_config=InjectionConfig(inject_runtime_state=False),
     )
     try:

@@ -12,6 +12,7 @@ import { Tooltip } from "antd";
 import { formatNumber } from "../../lib/chart";
 import type { AssistantMessage } from "../../lib/conversations";
 import { downloadCsv } from "../../lib/csv";
+import { canGiveFeedback, failureNotice, sqlTabLabel } from "../../lib/failure";
 import { groupResults } from "../../lib/plan";
 import { usageDetail, usageLabel } from "../../lib/usage";
 import { suggestsAnalysis } from "../../lib/modes";
@@ -73,7 +74,7 @@ function AnswerBody({ answer, onCopy }: { answer: AnswerPayload; onCopy: (text: 
     if (answer.metrics.length) {
       options.push({ label: `口径 ${answer.metrics.length}`, value: "metrics" });
     }
-    if (answer.sql) options.push({ label: "SQL", value: "sql" });
+    if (answer.sql) options.push({ label: sqlTabLabel(answer), value: "sql" });
     options.push({ label: "检索", value: "retrieval" });
     return options;
   }, [answer, hasChart, hasRows, table]);
@@ -125,6 +126,23 @@ function AnswerBody({ answer, onCopy }: { answer: AnswerPayload; onCopy: (text: 
         </div>
       )}
     </>
+  );
+}
+
+function FailureView({ answer }: { answer: AnswerPayload }) {
+  const notice = failureNotice(answer);
+  if (!notice) return null;
+  return (
+    <div
+      className={`notice failure-notice ${notice.tone === "error" ? "notice-error" : "notice-refused"}`}
+      role={notice.tone === "error" ? "alert" : "status"}
+    >
+      <ExclamationCircleOutlined />
+      <div>
+        <div>{notice.message}</div>
+        {notice.suggestion && <div className="failure-suggestion">{notice.suggestion}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -242,7 +260,7 @@ function Meta({ answer }: { answer: AnswerPayload }) {
           <span>{usageLabel(answer.usage)}</span>
         </Tooltip>
       )}
-      {answer.summary_source === "template" && <span>模板结论</span>}
+      {answer.summary_source === "template" && answer.summary && <span>模板结论</span>}
       {answer.degraded && <span className="warn">检索已降级</span>}
     </div>
   );
@@ -288,11 +306,12 @@ export default function AnswerCard({
       )}
       {answer && !refused && (
         <>
-          {analysis ? (
+          <FailureView answer={answer} />
+          {answer.summary && (analysis ? (
             <AnalysisSummaryView text={answer.summary} onCite={cite} />
           ) : (
             <h2 className="answer-headline">{answer.summary}</h2>
-          )}
+          ))}
           {answer.rewritten_question && answer.rewritten_question !== answer.question && (
             <p className="answer-rewrite">理解为：{answer.rewritten_question}</p>
           )}
@@ -352,7 +371,7 @@ export default function AnswerCard({
               </button>
             </Tooltip>
           )}
-          {answer?.log_id && !refused && (
+          {canGiveFeedback(answer) && (
             <>
               <Tooltip title="回答正确">
                 <button

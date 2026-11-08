@@ -53,6 +53,8 @@ class AgentRunContext:
     reserved: int = 0
     attempts: int = 0
     errors: list[str] = field(default_factory=list)
+    # The last SQL that failed, shown when no query succeeds.
+    failed_sql: str = ""
     trace: CallTrace = field(default_factory=CallTrace)
     declined: str = ""
 
@@ -178,6 +180,7 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         except SQLValidationError as exc:
             message = str(exc)
             context.errors.append(message)
+            context.failed_sql = sql
             logger.warning("[%s] 查询 %d 被拦截 reason=%s sql=%s", context.log_tag, attempt, message,
                            _one_line(sql))
             context.emit("status", {"step": "retrying", "message": f"SQL 被拦截：{message}"})
@@ -195,6 +198,7 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             step_reserved -= 1
             message = str(exc)
             context.errors.append(message)
+            context.failed_sql = safe_sql.sql
             logger.warning("[%s] 查询 %d 失败 error=%s sql=%s", context.log_tag, attempt,
                            _database_error(exc), _one_line(safe_sql.sql))
             context.emit("status", {"step": "retrying", "message": f"{prefix}{message}"})

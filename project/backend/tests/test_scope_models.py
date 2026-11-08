@@ -30,6 +30,21 @@ def test_deepseek_chat_model_preset() -> None:
     assert model.model == "deepseek-chat"
 
 
+def test_chat_models_take_the_output_limit_and_timeout_from_settings() -> None:
+    for provider in ("deepseek", "qwen", "openai"):
+        model = build_chat_model(make_settings(
+            llm_provider=provider, llm_endpoint="https://example.com/v1", llm_model="m",
+            llm_api_key="test", llm_max_tokens=6000, llm_timeout_seconds=42))
+        assert model is not None
+        assert model.parameters.max_tokens == 6000
+        assert model.client_kwargs == {"timeout": 42}
+
+
+def test_output_limit_fits_a_long_analysis_sql() -> None:
+    # 1024 tokens cut off a long analysis SQL mid-statement.
+    assert make_settings().llm_max_tokens >= 4096
+
+
 def test_explicit_endpoint_overrides_preset() -> None:
     model = build_chat_model(make_settings(
         llm_provider="deepseek",

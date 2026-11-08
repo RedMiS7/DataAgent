@@ -79,26 +79,32 @@ def build_chat_model(settings: Settings) -> ChatModelBase | None:
 
     explicit_endpoint = settings.llm_endpoint.strip()
     temperature = settings.llm_temperature
+    max_tokens = settings.llm_max_tokens
+    # One model call; the whole question has its own limit in the pipeline.
+    client_kwargs: dict[str, Any] = {"timeout": settings.llm_timeout_seconds}
 
     if provider == "deepseek":
         return DeepSeekChatModel(
             credential=_credential(DeepSeekCredential, settings.llm_api_key, explicit_endpoint),
             model=model_name,
-            parameters=DeepSeekChatModel.Parameters(temperature=temperature, max_tokens=1024),
+            parameters=DeepSeekChatModel.Parameters(temperature=temperature, max_tokens=max_tokens),
             stream=False,
+            client_kwargs=client_kwargs,
         )
     if provider in QWEN_PROVIDERS:
         return DashScopeChatModel(
             credential=_credential(DashScopeCredential, settings.llm_api_key, explicit_endpoint),
             model=model_name,
-            parameters=DashScopeChatModel.Parameters(temperature=temperature, max_tokens=1024),
+            parameters=DashScopeChatModel.Parameters(temperature=temperature, max_tokens=max_tokens),
             stream=False,
+            client_kwargs=client_kwargs,
         )
     return OpenAIChatModel(
         credential=_credential(OpenAICredential, settings.llm_api_key, endpoint),
         model=model_name,
-        parameters=OpenAIChatModel.Parameters(temperature=temperature, max_tokens=1024),
+        parameters=OpenAIChatModel.Parameters(temperature=temperature, max_tokens=max_tokens),
         stream=False,
+        client_kwargs=client_kwargs,
     )
 
 

@@ -417,6 +417,7 @@ def test_analysis_stops_running_queries_at_the_limit(analyze) -> None:
     answer, _ = analyze([*script, [TextBlock(text="整体平稳。")]])
     assert len(answer.results) == tools.ANALYSIS_MAX_QUERIES
     assert answer.retries == tools.ANALYSIS_MAX_QUERIES
+    assert any("查询次数已用完" in warning for warning in answer.warnings)
 
 
 def test_analysis_lists_each_query_as_a_step(analyze) -> None:

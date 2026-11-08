@@ -899,6 +899,17 @@ button:focus-visible {
   color: var(--warn);
 }
 
+.failure-notice {
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.failure-suggestion {
+  margin-top: 2px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
 .answer-warning {
   margin-top: 8px;
 }

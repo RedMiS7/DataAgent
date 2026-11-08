@@ -14,9 +14,12 @@ from agentscope.message import Msg, TextBlock
 
 from ..api.schemas import (
     AnswerPayload,
+    AnswerStatus,
     AskMode,
     CallUsage,
+    Failure,
     HistoryMessage,
+    MetricNote,
     PlanStepInfo,
     QueryResult,
     RequestMode,
@@ -45,6 +48,14 @@ from .answer import (
     time_range_warning,
     unverified_numbers,
     verify_summary,
+)
+from .failure import (
+    exception_failure,
+    no_answer_failure,
+    not_configured_failure,
+    sql_failure,
+    step_failure,
+    timeout_failure,
 )
 from .planner import STEP_ANSWER_RULE, AnalysisTask, PlanStep, run_analysis
 from .router import route_question
@@ -208,6 +219,23 @@ def _uncited_sources(summary: str, question: str, executions: list[ExecutionResu
             and unverified_numbers(text, question, [execution.rows]) != orphans]
 
 
+def _query_results(context: AgentRunContext, shown: list[int]) -> list[QueryResult]:
+    """The queries numbered in ``shown``, as the answer card lists them."""
+    results: list[QueryResult] = []
+    for index in shown:
+        execution = context.executions[index - 1]
+        results.append(QueryResult(
+            index=index,
+            purpose=context.purposes[index - 1] or f"查询 {index}",
+            sql=execution.sql,
+            table=TableBlock(columns=execution.columns, rows=execution.rows,
+                             truncated=execution.truncated, row_count=len(execution.rows)),
+            chart=recommend_chart(execution.columns, execution.rows),
+            step_id=context.step_ids[index - 1],
+        ))
+    return results
+
+
 async def _reply_text(agent: Agent, inputs: list[Msg]) -> str:
     return extract_text(await agent.reply(inputs))
 
@@ -270,7 +298,8 @@ class AskPipeline:
                            "或使用 LLM_PROVIDER=deepseek 内置预设。")
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
                                       None, time_range, bundle, 0, "error",
-                                      "", message, trace)
+                                      "", message, trace,
+                                      failure=not_configured_failure(message))
 
             route: RouteInfo | None = None
             if mode == "auto":
@@ -299,7 +328,9 @@ class AskPipeline:
                 system_prompt=self._system_prompt(bundle, time_range, mode),
                 model=model,
                 toolkit=build_toolkit(context),
-                react_config=ReActConfig(max_iters=max_iters),
+                # A cancel must reach wait_for, or the time limit below never fires.
+                react_config=ReActConfig(max_iters=max_iters,
+                                         interruption_raise_cancelled_error=True),
                 middlewares=trace.middlewares(),
                 # Runtime state carries the real clock, which conflicts with as_of_date.
                 injection_config=InjectionConfig(inject_runtime_state=False),
@@ -310,24 +341,30 @@ class AskPipeline:
                 question, time_range))], role="user"))
 
             steps: list[PlanStep] | None = None
+            timeout = (self.settings.analysis_timeout_seconds if mode == "analysis"
+                       else self.settings.ask_timeout_seconds)
             try:
                 if mode == "analysis":
                     # One loop for the whole analysis: the model's connections belong to it.
                     task = self._analysis_task(question, client_history, bundle, time_range,
                                                query_iters)
-                    outcome = asyncio.run(run_analysis(model, context, task,
-                                                       lambda: _reply_text(agent, inputs)))
+                    outcome = asyncio.run(asyncio.wait_for(
+                        run_analysis(model, context, task, lambda: _reply_text(agent, inputs)),
+                        timeout))
                     text, steps = outcome.text, outcome.steps
                 else:
-                    text = asyncio.run(_reply_text(agent, inputs))
+                    text = asyncio.run(asyncio.wait_for(_reply_text(agent, inputs), timeout))
+            except TimeoutError:
+                logger.warning("[%s] 问答超时（%.0f 秒），已有 %d 条查询结果", tag, timeout,
+                               len(context.executions))
+                return self._degrade(conn, emit, session_id, question, rewritten, time_range,
+                                     bundle, context, mode, route,
+                                     timeout_failure(timeout, bool(context.executions)))
             except Exception as exc:
                 logger.exception("[%s] Agent 执行失败", tag)
-                message = f"Agent 执行失败：{exc}"
-                failed = select_execution(context.executions, "")
-                return self._finalize(conn, emit, session_id, question, rewritten,
-                                      failed.sql if failed else "", failed, time_range, bundle,
-                                      context.attempts, "error", "", message, trace,
-                                      mode=mode, route=route)
+                return self._degrade(conn, emit, session_id, question, rewritten, time_range,
+                                     bundle, context, mode, route,
+                                     exception_failure(exc, bool(context.executions)))
 
             if context.declined:
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
@@ -337,11 +374,10 @@ class AskPipeline:
 
             execution = select_execution(context.executions, text)
             if execution is None:
-                detail = context.errors[-1] if context.errors else "模型没有调用 run_sql 工具"
-                return self._finalize(conn, emit, session_id, question, rewritten,
-                                      "", None, time_range, bundle,
-                                      context.attempts, "error", "", detail, trace,
-                                      mode=mode, route=route)
+                failure = (sql_failure(context.attempts, context.errors[-1]) if context.errors
+                           else no_answer_failure())
+                return self._degrade(conn, emit, session_id, question, rewritten, time_range,
+                                     bundle, context, mode, route, failure, steps)
 
             if mode == "analysis":
                 return self._finish_analysis(conn, emit, session_id, question, rewritten,
@@ -439,21 +475,14 @@ class AskPipeline:
             if cited else list(range(1, len(executions) + 1))
         used = [executions[index - 1] for index in shown]
         primary = next((execution for execution in used if execution.rows), used[0])
-        results = [
-            QueryResult(
-                index=index,
-                purpose=context.purposes[index - 1] or f"查询 {index}",
-                sql=execution.sql,
-                table=TableBlock(columns=execution.columns, rows=execution.rows,
-                                 truncated=execution.truncated, row_count=len(execution.rows)),
-                chart=recommend_chart(execution.columns, execution.rows),
-                step_id=context.step_ids[index - 1],
-            )
-            for index, execution in zip(shown, used, strict=True)
-        ]
+        results = _query_results(context, shown)
         plan = [PlanStepInfo(**step.view()) for step in steps or []]
 
         warnings: list[str] = []
+        if context.reserved >= ANALYSIS_MAX_QUERIES:
+            warnings.append(f"查询次数已用完（{ANALYSIS_MAX_QUERIES} 条），结论只基于已经查到的数据。")
+        failed = [step.goal for step in steps or [] if step.status == "failed"]
+        failure = step_failure(failed) if failed else None
         source = "model"
         if summary:
             # Every query of this answer counts: a figure is often quoted without its citation.
@@ -465,12 +494,43 @@ class AskPipeline:
             summary = template_summary(primary.columns, primary.rows)
             source = "template"
 
-        status = "ok" if primary.rows else "empty"
+        status: AnswerStatus = "partial" if failure else "ok" if primary.rows else "empty"
         return self._finalize(conn, emit, session_id, question, rewritten, primary.sql, primary,
-                              time_range, bundle, context.attempts, status, summary, "",
-                              context.trace,
+                              time_range, bundle, context.attempts, status, summary,
+                              failure.message if failure else "", context.trace,
                               source, mode="analysis", results=results, warnings=warnings,
-                              route=route, plan=plan)
+                              route=route, plan=plan, failure=failure)
+
+    def _degrade(self, conn, emit: EventHandler, session_id: str, question: str,
+                 rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
+                 context: AgentRunContext, mode: AskMode, route: RouteInfo | None,
+                 failure: Failure, steps: list[PlanStep] | None = None) -> AnswerPayload:
+        """Answer what went wrong: with the queries done so far, or with why there are none.
+
+        Queries that ran are shown as a partial answer with a template conclusion; with
+        none, the answer still carries the time range, the failed SQL and the metrics.
+        """
+        executions = context.executions
+        plan = [PlanStepInfo(**step.view()) for step in steps or []]
+        if not executions:
+            return self._finalize(conn, emit, session_id, question, rewritten,
+                                  context.failed_sql, None, time_range, bundle,
+                                  context.attempts, "error", "", failure.message,
+                                  context.trace, mode=mode, route=route, plan=plan,
+                                  failure=failure)
+
+        if mode == "analysis":
+            primary = next((execution for execution in executions if execution.rows),
+                           executions[0])
+            results = _query_results(context, list(range(1, len(executions) + 1)))
+        else:
+            primary = select_execution(executions, "") or executions[0]
+            results = []
+        return self._finalize(conn, emit, session_id, question, rewritten, primary.sql, primary,
+                              time_range, bundle, context.attempts, "partial",
+                              template_summary(primary.columns, primary.rows), failure.message,
+                              context.trace, mode=mode, results=results, route=route,
+                              plan=plan, failure=failure)
 
     def _finalize(self, conn, emit: EventHandler, session_id: str, question: str,
                   rewritten: str, sql_text: str, result: ExecutionResult | None,
@@ -480,12 +540,17 @@ class AskPipeline:
                   results: list[QueryResult] | None = None,
                   warnings: list[str] | None = None,
                   route: RouteInfo | None = None,
-                  plan: list[PlanStepInfo] | None = None) -> AnswerPayload:
+                  plan: list[PlanStepInfo] | None = None,
+                  failure: Failure | None = None) -> AnswerPayload:
         duration_ms = int((time.perf_counter() - trace.started) * 1000)
         results = results or []
         warnings = list(warnings or [])
         used_tables = _table_names(sql_text).union(*(_table_names(item.sql) for item in results))
         metrics = build_metric_notes(bundle, used_tables)
+        if status == "error" and not metrics:
+            # No SQL names the tables, so show the metrics the question matched.
+            metrics = [MetricNote(name=hit.metric.name, definition=hit.metric.definition,
+                                  formula=hit.metric.formula) for hit in bundle.metrics[:2]]
 
         table_block = None
         chart = None
@@ -512,6 +577,7 @@ class AskPipeline:
             rewritten_question=rewritten,
             sql=sql_text,
             status=status,  # type: ignore[arg-type]
+            failure=failure,
             table=table_block,
             chart=chart,
             summary=summary,
@@ -535,12 +601,16 @@ class AskPipeline:
         if status in ("blocked", "error"):
             logger.error("[%s] 问答失败 status=%s %dms 尝试 %d 次 模型 %d 次 error=%s", tag,
                          status, duration_ms, retries, trace.usage()["model_calls"], summary or error)
-            emit("error", {"message": summary or error, "status": status})
+        elif status == "partial":
+            logger.warning("[%s] 问答部分完成 status=partial %dms 尝试 %d 次 模型 %d 次 "
+                           "failure=%s error=%s", tag, duration_ms, retries,
+                           trace.usage()["model_calls"], failure.kind if failure else "-", error)
         else:
             logger.info("[%s] 问答结束 status=%s %dms 尝试 %d 次 模型 %d 次 tokens=%d/%d", tag,
                         status, duration_ms, retries, trace.usage()["model_calls"],
                         trace.input_tokens, trace.output_tokens)
-            emit("answer", payload.model_dump())
+        # Failures are answers too: the card shows what was understood and what went wrong.
+        emit("answer", payload.model_dump())
         return payload
 
 

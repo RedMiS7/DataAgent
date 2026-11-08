@@ -79,11 +79,26 @@ class CallUsage(BaseModel):
     model_ms: int = 0
 
 
+# "partial": some queries ran but the answer is incomplete; "error": no query result at all.
+AnswerStatus = Literal["ok", "empty", "partial", "refused", "blocked", "error"]
+FailureKind = Literal["timeout", "sql_failed", "model_error", "no_answer", "step_failed",
+                      "unexpected"]
+
+
+class Failure(BaseModel):
+    """What went wrong in a partial or failed answer, in words for the user."""
+
+    kind: FailureKind
+    message: str
+    suggestion: str = ""
+
+
 class AnswerPayload(BaseModel):
     question: str
     rewritten_question: str = ""
     sql: str = ""
-    status: Literal["ok", "empty", "refused", "blocked", "error"] = "ok"
+    status: AnswerStatus = "ok"
+    failure: Failure | None = None
     table: TableBlock | None = None
     chart: ChartSpec | None = None
     summary: str = ""

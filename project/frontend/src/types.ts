@@ -51,7 +51,23 @@ export interface RetrievalView {
   degraded_reason: string;
 }
 
-export type AnswerStatus = "ok" | "empty" | "refused" | "blocked" | "error";
+/** "partial": some queries ran but the answer is incomplete; "error": no query result. */
+export type AnswerStatus = "ok" | "empty" | "partial" | "refused" | "blocked" | "error";
+
+export type FailureKind =
+  | "timeout"
+  | "sql_failed"
+  | "model_error"
+  | "no_answer"
+  | "step_failed"
+  | "unexpected";
+
+/** What went wrong in a partial or failed answer, in words for the user. */
+export interface Failure {
+  kind: FailureKind;
+  message: string;
+  suggestion: string;
+}
 
 export interface QueryResult {
   index: number;
@@ -99,6 +115,8 @@ export interface AnswerPayload {
   rewritten_question: string;
   sql: string;
   status: AnswerStatus;
+  /** Set on partial and failed answers; missing on answers saved before it existed. */
+  failure?: Failure | null;
   table: TableBlock | null;
   chart: ChartSpec | null;
   summary: string;

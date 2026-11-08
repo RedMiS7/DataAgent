@@ -357,7 +357,11 @@ def test_a_step_without_queries_fails_and_the_rest_still_run(analyze) -> None:
         step1=[text("没有广告数据")],
         summary=[text("鞋靴领先。\n- 鞋靴销量 200 [查询1]\n- 广告数据缺失\n- 建议：补充投放")],
     ))
-    assert answer.status == "ok"
+    # The conclusion stands, but the card says which step has no data.
+    assert answer.status == "partial"
+    assert answer.summary_source == "model"
+    assert answer.failure is not None and answer.failure.kind == "step_failed"
+    assert "看广告投放" in answer.failure.message
     assert [step.status for step in answer.plan] == ["failed", "done"]
     assert by_step(answer) == {2: ["类目拆分"]}
     assert ("step", {"id": 1, "goal": "看广告投放", "origin": "plan", "status": "failed"}) \

@@ -99,6 +99,18 @@ def test_reply_history_mirrors_the_frontend() -> None:
     assert reply_history(AnswerPayload(question="q", status="empty", summary="")).content == ""
 
 
+def test_reply_history_carries_the_queries_like_the_frontend() -> None:
+    period = {"label": "上个月", "start": "2026-09-01", "end_exclusive": "2026-10-01"}
+    answer = AnswerPayload(question="上个月GMV是多少？", summary="GMV 为 9 万。", sql="SELECT 1",
+                           time_range=period)
+    reply = reply_history(answer)
+    assert [(query.purpose, query.sql) for query in reply.queries] == [("上个月GMV是多少？",
+                                                                        "SELECT 1")]
+    assert reply.time_range == period
+    failed = AnswerPayload(question="q", status="error", sql="SELECT amount", time_range=period)
+    assert reply_history(failed).queries == [] and reply_history(failed).time_range == {}
+
+
 def _answer(sql: str = "", rows: list[list] | None = None, status: str = "ok") -> AnswerPayload:
     table = TableBlock(columns=["a"], rows=rows or [], row_count=len(rows or []))
     return AnswerPayload(question="q", sql=sql, status=status, table=table)  # type: ignore[arg-type]

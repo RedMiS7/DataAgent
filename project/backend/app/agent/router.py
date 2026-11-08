@@ -13,7 +13,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.model import ChatModelBase
 
 from ..api.schemas import AskMode, HistoryMessage, RouteChoice
-from .answer import history_content, strip_citations
+from .answer import history_content, latest_replies, purposes_note, strip_citations
 from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
@@ -81,9 +81,16 @@ def _speaker(message: HistoryMessage) -> str:
     return f"助手（{label}）" if label else "助手"
 
 
-def build_router_input(question: str, history: list[HistoryMessage]) -> str:
-    lines = [f"{_speaker(item)}：{strip_citations(history_content(item)).strip()}"
-             for item in history]
+def build_router_input(question: str, history: list[HistoryMessage],
+                       with_purposes: bool = False) -> str:
+    """The conversation as text. The planner also gets what the latest replies queried,
+    so it does not plan the same queries again; nobody here gets their SQL."""
+    latest = latest_replies(history) if with_purposes else set()
+    lines: list[str] = []
+    for index, item in enumerate(history):
+        line = f"{_speaker(item)}：{strip_citations(history_content(item)).strip()}"
+        note = purposes_note(item) if index in latest else ""
+        lines.append(f"{line}{note}")
     record = "\n".join(lines) if lines else "（无）"
     return f"对话记录（从早到晚）：\n{record}\n\n最后一个问题：{question}"
 

@@ -1,4 +1,4 @@
-import type { AnswerPayload, HistoryMessage } from "../types";
+import type { AnswerPayload, HistoryMessage, HistoryQuery } from "../types";
 import type { AskMode } from "./modes";
 import type { Thinking } from "./reasoning";
 
@@ -139,8 +139,38 @@ export function restoreConversations(
   return { items: [fresh, ...stored], activeId: fresh.id };
 }
 
-/** The backend rejects longer history messages. */
+/** The backend rejects longer history messages, purposes and more queries. */
 const HISTORY_MAX_CHARS = 4000;
+const HISTORY_MAX_PURPOSE = 200;
+const HISTORY_MAX_QUERIES = 10;
+const TIME_RANGE_KEYS = ["label", "start", "end_exclusive"];
+
+/**
+ * The queries an answer rests on, so a follow-up can count the same way.
+ * A failed answer's SQL did not run, so it is left out.
+ */
+export function answerQueries(answer: AnswerPayload): HistoryQuery[] {
+  if (!["ok", "empty", "partial"].includes(answer.status)) return [];
+  const queries = answer.results?.length
+    ? answer.results.map((result) => ({ purpose: result.purpose, sql: result.sql }))
+    : answer.sql ? [{ purpose: answer.question, sql: answer.sql }] : [];
+  return queries
+    .filter((query) => query.sql)
+    .slice(0, HISTORY_MAX_QUERIES)
+    .map((query) => ({
+      purpose: query.purpose.slice(0, HISTORY_MAX_PURPOSE),
+      sql: query.sql.slice(0, HISTORY_MAX_CHARS),
+    }));
+}
+
+function timeRange(answer: AnswerPayload): Record<string, string> {
+  const range: Record<string, string> = {};
+  for (const key of TIME_RANGE_KEYS) {
+    const value = answer.time_range?.[key];
+    if (value) range[key] = value.slice(0, 64);
+  }
+  return range;
+}
 
 /** A reply as the backend reads it; failed and stopped replies say how they ended. */
 function replyHistory(message: AssistantMessage): HistoryMessage | null {
@@ -153,6 +183,11 @@ function replyHistory(message: AssistantMessage): HistoryMessage | null {
     };
     // Answers saved before statuses were sent have none; the backend treats them as normal.
     if (answer.status) reply.status = answer.status;
+    const queries = answerQueries(answer);
+    if (queries.length) {
+      reply.queries = queries;
+      reply.time_range = timeRange(answer);
+    }
     return reply;
   }
   if (message.state === "error") {

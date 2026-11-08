@@ -97,6 +97,15 @@ export interface HistoryMessage {
   mode?: AnswerMode;
   /** How a reply ended; "stopped" means the user stopped it before an answer. */
   status?: AnswerStatus | "stopped";
+  /** The queries a reply rests on, so a follow-up can count the same way. */
+  queries?: HistoryQuery[];
+  /** The period the reply covered, as the answer's time_range gives it. */
+  time_range?: Record<string, string>;
+}
+
+export interface HistoryQuery {
+  purpose: string;
+  sql: string;
 }
 
 export interface RouteInfo {

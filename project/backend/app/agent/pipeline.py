@@ -42,7 +42,9 @@ from .answer import (
     build_metric_notes,
     fill_missing_replies,
     history_content,
+    latest_replies,
     normalize_citations,
+    queries_note,
     recommend_chart,
     select_execution,
     template_summary,
@@ -114,6 +116,8 @@ SYSTEM_PROMPT = f"""你是 DataAgent，面向小电商卖家的经营数据分�
     动手前先想好要用哪些表，一次查看多张。
 12. 问题不需要查数时（解释指标口径、解释或改写之前的回答、问能做什么），可以不调用 run_sql，
     直接回答；回答里不要出现查询结果和对话记录以外的数字。
+13. 对话记录里附上的“这一轮用过的查询”只用来了解之前怎么查、用的什么口径和字段。
+    追问时沿用这些写法，但日期以本轮的时间范围为准，不要照抄旧日期。
 """
 
 ANALYSIS_PROMPT = SYSTEM_PROMPT.replace(QUERY_ANSWER_RULE, ANALYSIS_ANSWER_RULE)
@@ -224,9 +228,15 @@ def extract_text(message: Msg) -> str:
 
 
 def history_pairs(history: list[HistoryMessage]) -> list[tuple[str, str]]:
-    """The client's history as (role, text): replies without citation marks, and a
-    reply that found nothing saying so."""
-    return [(item.role, history_content(item)) for item in history]
+    """The client's history as (role, text): replies without citation marks, a reply
+    that found nothing saying so, and the latest replies with the SQL they rest on."""
+    with_sql = latest_replies(history)
+    pairs: list[tuple[str, str]] = []
+    for index, item in enumerate(history):
+        text = history_content(item)
+        note = queries_note(item) if index in with_sql else ""
+        pairs.append((item.role, f"{text}\n{note}".strip() if note else text))
+    return pairs
 
 
 def _uncited_sources(summary: str, question: str, executions: list[ExecutionResult],
@@ -365,7 +375,7 @@ class AskPipeline:
                                          exception_failure(exc, False))
                 if text.strip() and NEED_DATA not in text:
                     return self._text_answer(conn, emit, session_id, question, rewritten,
-                                             time_range, bundle, turns, text, trace, mode,
+                                             time_range, bundle, client_history, text, trace, mode,
                                              route)
                 logger.info("[%s] 直接回答时发现需要查数，改用查询模式 reply=%r", tag, text)
                 route = route.model_copy(update={
@@ -430,7 +440,7 @@ class AskPipeline:
                     and NEED_DATA not in text:
                 # The model judged that no data was needed, e.g. for a metric definition.
                 return self._text_answer(conn, emit, session_id, question, rewritten,
-                                         time_range, bundle, turns, text, trace, mode, route)
+                                         time_range, bundle, client_history, text, trace, mode, route)
             if execution is None:
                 failure = (sql_failure(context.attempts, context.errors[-1]) if context.errors
                            else no_answer_failure())
@@ -522,11 +532,12 @@ class AskPipeline:
 
     def _text_answer(self, conn, emit: EventHandler, session_id: str, question: str,
                      rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
-                     turns: list[tuple[str, str]], text: str, trace: CallTrace,
+                     history: list[HistoryMessage], text: str, trace: CallTrace,
                      mode: AskMode, route: RouteInfo | None) -> AnswerPayload:
         """An answer without SQL. Its figures must come from the conversation or the
-        knowledge base; others are flagged."""
-        sources = [content for role, content in turns if role == "assistant"]
+        knowledge base; others are flagged. The SQL of earlier replies does not count:
+        a LIMIT or a date in it is no source for a figure."""
+        sources = [history_content(item) for item in history if item.role == "assistant"]
         sources.append(bundle.to_prompt_context())
         missing = unverified_numbers(text, question, [[[source]] for source in sources])
         warnings = [f"这些数字没有查询依据：{'、'.join(missing)}"] if missing else []

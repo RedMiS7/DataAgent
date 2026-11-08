@@ -14,7 +14,7 @@ from app.agent import pipeline, router, session, tools
 from app.agent.pipeline import NEED_DATA, AskPipeline, is_followup, resolve_time_range
 from app.agent.router import build_router_input, parse_route
 from app.agent.scope_model import ScriptedChatModel
-from app.api.schemas import HistoryMessage
+from app.api.schemas import HistoryMessage, HistoryQuery
 from app.config import Settings
 from app.nl2sql.executor import ExecutionResult
 from app.semantic.models import Metric, MetricHit, RetrievalBundle
@@ -127,6 +127,15 @@ def test_a_figure_from_nowhere_is_flagged(ask) -> None:
                     history=GMV_HISTORY)
     assert answer.status == "text"
     assert answer.warnings == ["这些数字没有查询依据：35.6万"]
+
+
+def test_a_number_only_in_earlier_sql_is_no_source(ask) -> None:
+    history = [GMV_HISTORY[0], GMV_HISTORY[1].model_copy(update={"queries": [HistoryQuery(
+        purpose="上个月GMV", sql="SELECT SUM(x) FROM safe.orders LIMIT 500")]})]
+    answer, _ = ask("把这个结论写成一段话发给老板", agent=[text("不应该用到")],
+                    router_reply=route("direct"),
+                    direct=[text("上个月 GMV 为 412.3 万元，共 500 个商品。")], history=history)
+    assert answer.warnings == ["这些数字没有查询依据：500"]
 
 
 def test_a_direct_answer_that_needs_data_falls_back_to_a_query(ask) -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -33,11 +33,20 @@ RequestMode = Literal["auto", "query", "analysis"]
 
 HISTORY_MAX_MESSAGES = 200
 HISTORY_MAX_CHARS = 4000
+# An analysis answer shows at most 10 queries.
+HISTORY_MAX_QUERIES = 10
 
 
 # How an earlier reply ended; "stopped" means the user stopped it before an answer.
 HistoryStatus = Literal["ok", "empty", "partial", "text", "refused", "blocked", "error",
                         "stopped"]
+
+
+class HistoryQuery(BaseModel):
+    """A query an earlier reply rests on: what it was for and its SQL."""
+
+    purpose: str = Field(default="", max_length=200)
+    sql: str = Field(max_length=HISTORY_MAX_CHARS)
 
 
 class HistoryMessage(BaseModel):
@@ -47,6 +56,12 @@ class HistoryMessage(BaseModel):
     mode: AskMode | None = None
     # Failed and stopped replies are sent too, so every question has a reply.
     status: HistoryStatus | None = None
+    # The queries of a reply, so a follow-up can reuse how the data was counted. They
+    # come from the client: the model reads them as reference only, nothing runs them.
+    queries: list[HistoryQuery] = Field(default_factory=list, max_length=HISTORY_MAX_QUERIES)
+    # The period the reply covered, as AnswerPayload.time_range gives it.
+    time_range: dict[str, Annotated[str, Field(max_length=64)]] = Field(default_factory=dict,
+                                                                         max_length=4)
 
 
 # "direct": answered from the conversation and the metric definitions, without SQL.

@@ -17,7 +17,7 @@ from app.agent.pipeline import AskPipeline
 from app.agent.router import route_question
 from app.agent.scope_model import build_chat_model
 from app.analysis import attribute_return_rate
-from app.api.schemas import AnswerPayload, HistoryMessage
+from app.api.schemas import AnswerPayload, HistoryMessage, HistoryQuery
 from app.config import Settings
 from app.nl2sql.executor import SQLExecutionError, execute_sql
 from app.safety.validator import SQLValidationError, validate_and_limit
@@ -281,8 +281,16 @@ def reply_history(answer: AnswerPayload) -> HistoryMessage:
     of a conclusion.
     """
     content = answer.summary or (answer.failure.message if answer.failure else "")
+    queries: list[HistoryQuery] = []
+    if answer.status in ("ok", "empty", "partial"):
+        pairs = ([(item.purpose, item.sql) for item in answer.results] if answer.results
+                 else [(answer.question, answer.sql)] if answer.sql else [])
+        queries = [HistoryQuery(purpose=purpose[:200], sql=sql[:4000])
+                   for purpose, sql in pairs if sql][:10]
+    time_range = {key: value[:64] for key, value in answer.time_range.items()
+                  if key in ("label", "start", "end_exclusive") and value} if queries else {}
     return HistoryMessage(role="assistant", content=content[:4000], mode=answer.mode,
-                          status=answer.status)
+                          status=answer.status, queries=queries, time_range=time_range)
 
 
 def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str) -> list[HistoryMessage]:

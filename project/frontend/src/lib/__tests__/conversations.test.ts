@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  answerQueries,
   buildHistory,
   createConversation,
   deriveTitle,
@@ -231,6 +232,32 @@ describe("buildHistory", () => {
     ]);
   });
 
+  it("sends the SQL and period of a query answer", () => {
+    const answered: ChatMessage = {
+      id: "q",
+      role: "assistant",
+      state: "done",
+      thinking: startThinking(NOW),
+      answer: {
+        question: "上个月GMV是多少？",
+        summary: "上个月 GMV 为 907.3 万元。",
+        mode: "query",
+        status: "ok",
+        sql: "SELECT SUM(x) FROM safe.orders",
+        results: [],
+        time_range: { label: "上个月", start: "2026-09-01", end_exclusive: "2026-10-01" },
+      } as never,
+    };
+    expect(buildHistory([user("上个月GMV是多少？"), answered])[1]).toEqual({
+      role: "assistant",
+      content: "上个月 GMV 为 907.3 万元。",
+      mode: "query",
+      status: "ok",
+      queries: [{ purpose: "上个月GMV是多少？", sql: "SELECT SUM(x) FROM safe.orders" }],
+      time_range: { label: "上个月", start: "2026-09-01", end_exclusive: "2026-10-01" },
+    });
+  });
+
   it("leaves out a reply that is still streaming", () => {
     const streaming: ChatMessage = {
       id: "w", role: "assistant", state: "streaming", thinking: startThinking(NOW),
@@ -246,5 +273,33 @@ describe("buildHistory", () => {
   it("treats answers saved before modes existed as query answers", () => {
     expect(buildHistory([user("甲"), done("结论")])[1]).toEqual(
       { role: "assistant", content: "结论", mode: "query" });
+  });
+});
+
+describe("answerQueries", () => {
+  const base = { question: "为什么下降了？", sql: "", results: [] };
+
+  it("lists the queries an analysis showed, with their purposes", () => {
+    const answer = { ...base, status: "partial", mode: "analysis",
+                     results: [{ purpose: "整体对比", sql: "SELECT 1" },
+                               { purpose: "按渠道拆", sql: "SELECT 2" }] };
+    expect(answerQueries(answer as never)).toEqual([
+      { purpose: "整体对比", sql: "SELECT 1" },
+      { purpose: "按渠道拆", sql: "SELECT 2" },
+    ]);
+  });
+
+  it("leaves out SQL that did not run and answers without SQL", () => {
+    expect(answerQueries({ ...base, status: "error", sql: "SELECT amount" } as never)).toEqual([]);
+    expect(answerQueries({ ...base, status: "text" } as never)).toEqual([]);
+    expect(answerQueries({ ...base, status: "refused" } as never)).toEqual([]);
+  });
+
+  it("keeps what the backend accepts", () => {
+    const results = Array.from({ length: 12 }, (_, index) => (
+      { purpose: "用途".repeat(150), sql: `SELECT ${index}` }));
+    const queries = answerQueries({ ...base, status: "ok", results } as never);
+    expect(queries).toHaveLength(10);
+    expect(queries[0].purpose).toHaveLength(200);
   });
 });

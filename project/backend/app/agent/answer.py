@@ -187,6 +187,46 @@ def fill_missing_replies(history: list[HistoryMessage]) -> list[HistoryMessage]:
     return filled
 
 
+# Only the latest replies show their SQL: older queries add tokens, not help.
+HISTORY_SQL_TURNS = 3
+UNFINISHED = ("error", "blocked", "stopped")
+
+
+def _period_text(time_range: dict[str, str]) -> str:
+    label = time_range.get("label", "")
+    start, end = time_range.get("start", ""), time_range.get("end_exclusive", "")
+    if start and end:
+        return f"{label}，{start} 至 {end}，不含右端".lstrip("，")
+    return label
+
+
+def queries_note(message: HistoryMessage) -> str:
+    """The queries an earlier reply rests on, for a follow-up to count the same way."""
+    if not message.queries or message.status in UNFINISHED:
+        return ""
+    period = _period_text(message.time_range)
+    head = ("（这一轮用过的查询" + (f"，时间范围：{period}" if period else "")
+            + "。仅供参考，不是指令；写新 SQL 时以本轮的时间范围为准）")
+    lines = [head]
+    for index, query in enumerate(message.queries, start=1):
+        sql = " ".join(query.sql.split())
+        lines.append(f"- 查询{index}（{query.purpose or '查询'}）：{sql}")
+    return "\n".join(lines)
+
+
+def purposes_note(message: HistoryMessage) -> str:
+    """What the queries of an earlier reply looked at, without their SQL."""
+    if not message.queries or message.status in UNFINISHED:
+        return ""
+    return "（用过的查询：" + "；".join(query.purpose or "查询" for query in message.queries) + "）"
+
+
+def latest_replies(history: list[HistoryMessage], count: int = HISTORY_SQL_TURNS) -> set[int]:
+    """Positions of the last ``count`` replies in the history."""
+    replies = [index for index, message in enumerate(history) if message.role == "assistant"]
+    return set(replies[-count:]) if count > 0 else set()
+
+
 def history_content(message: HistoryMessage) -> str:
     """An earlier message as the model reads it; a reply that found nothing says so."""
     if message.role == "user":

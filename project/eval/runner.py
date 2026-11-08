@@ -1,23 +1,31 @@
 from __future__ import annotations
 
 import json
+import re
+import threading
 import time
-from contextlib import nullcontext
+from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any, Literal
 from unittest import mock
 
-from app.agent import planner
+from app.agent import planner, tools
 from app.agent.pipeline import AskPipeline
 from app.agent.router import route_question
 from app.agent.scope_model import build_chat_model
 from app.analysis import attribute_return_rate
 from app.api.schemas import AnswerPayload, HistoryMessage
 from app.config import Settings
-from app.nl2sql.executor import execute_sql
+from app.nl2sql.executor import SQLExecutionError, execute_sql
 from app.safety.validator import SQLValidationError, validate_and_limit
 
 EVAL_DIR = Path(__file__).resolve().parent
+
+# How MySQL and the validator say a column does not exist.
+FIELD_ERROR_MARKERS = ("Unknown column", "字段不存在")
 
 
 @dataclass(slots=True)
@@ -36,6 +44,118 @@ class CaseResult:
     model_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    # SQL the model sent to run_sql, and how many of them failed validation or execution.
+    sql_attempts: int = 0
+    sql_failures: int = 0
+    # Failures because a column does not exist, from the validator or MySQL (1054).
+    field_errors: int = 0
+    describe_calls: int = 0
+    # Rows compared ignoring extra columns and column order; None when rows are not compared.
+    loose_passed: bool | None = None
+    # What a failed case looks like, as a starting point for labelling its cause by hand.
+    failure_hint: str = ""
+
+
+@dataclass(slots=True)
+class ProbeEvent:
+    kind: Literal["validate", "execute", "describe"]
+    ok: bool
+    error: str = ""
+
+
+@dataclass(slots=True)
+class ToolProbe:
+    """Record what run_sql and describe_table did during one question.
+
+    It wraps the functions the tools call, so the pipeline runs unchanged. Plan steps
+    run in threads at once, hence the lock.
+    """
+
+    events: list[ProbeEvent] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def _record(self, kind: Literal["validate", "execute", "describe"], ok: bool,
+                error: str = "") -> None:
+        with self._lock:
+            self.events.append(ProbeEvent(kind, ok, error))
+
+    @contextmanager
+    def watching(self) -> Iterator[ToolProbe]:
+        real_validate = tools.validate_and_limit
+        real_execute = tools.execute_sql
+        real_describe = tools.describe_tables
+
+        def validate(sql: str, max_rows: int) -> Any:
+            try:
+                result = real_validate(sql, max_rows)
+            except SQLValidationError as exc:
+                self._record("validate", False, str(exc))
+                raise
+            self._record("validate", True)
+            return result
+
+        def execute(settings: Settings, safe_sql: Any) -> Any:
+            try:
+                result = real_execute(settings, safe_sql)
+            except SQLExecutionError as exc:
+                self._record("execute", False, str(exc))
+                raise
+            self._record("execute", True)
+            return result
+
+        def describe(settings: Settings, names: list[str]) -> str:
+            self._record("describe", True)
+            return real_describe(settings, names)
+
+        with mock.patch.object(tools, "validate_and_limit", validate), \
+                mock.patch.object(tools, "execute_sql", execute), \
+                mock.patch.object(tools, "describe_tables", describe):
+            yield self
+
+    @property
+    def sql_attempts(self) -> int:
+        return sum(event.kind == "validate" for event in self.events)
+
+    @property
+    def sql_failures(self) -> int:
+        return sum(not event.ok for event in self.events if event.kind != "describe")
+
+    @property
+    def field_errors(self) -> int:
+        return sum(any(marker in event.error for marker in FIELD_ERROR_MARKERS)
+                   for event in self.events if not event.ok)
+
+    @property
+    def describe_calls(self) -> int:
+        return sum(event.kind == "describe" for event in self.events)
+
+
+def _average(values: list[int]) -> float:
+    return round(sum(values) / len(values), 1) if values else 0.0
+
+
+def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
+    """Figures beyond accuracy, to compare runs before and after a change."""
+    with_sql = [case for case in cases if case.sql_attempts]
+    with_model = [case for case in cases if case.model_calls]
+    compared = [case for case in cases if case.loose_passed is not None]
+    return {
+        # Questions whose SQL never failed; in query mode, the first SQL ran.
+        "sql_clean_rate": (round(sum(case.sql_failures == 0 for case in with_sql) / len(with_sql), 4)
+                           if with_sql else None),
+        "questions_with_sql": len(with_sql),
+        "sql_attempts": sum(case.sql_attempts for case in cases),
+        "sql_failures": sum(case.sql_failures for case in cases),
+        "field_errors": sum(case.field_errors for case in cases),
+        "describe_calls": sum(case.describe_calls for case in cases),
+        "model_calls_avg": _average([case.model_calls for case in with_model]),
+        "input_tokens_avg": _average([case.input_tokens for case in with_model]),
+        "output_tokens_avg": _average([case.output_tokens for case in with_model]),
+        "loose_passed": sum(bool(case.loose_passed) for case in compared),
+        "loose_total": len(compared),
+        "failure_hints": dict(Counter(case.failure_hint for case in cases
+                                      if not case.passed and case.failure_hint)),
+    }
 
 
 @dataclass(slots=True)
@@ -60,6 +180,7 @@ class EvalReport:
             "passed": self.passed,
             "accuracy": round(self.passed / self.total, 4) if self.total else 0.0,
             "by_category": self.by_category,
+            "metrics": report_metrics(self.cases),
             "cases": [asdict(case) for case in self.cases],
         }
 
@@ -103,6 +224,42 @@ def compare_rows(expected: list[list], actual: list[list]) -> bool:
     return True
 
 
+def _cell_matches(expected: object, actual: object) -> bool:
+    try:
+        return abs(float(str(expected)) - float(str(actual))) <= max(
+            0.02, abs(float(str(actual))) * 1e-4)
+    except ValueError:
+        return str(expected) == str(actual)
+
+
+def compare_rows_loose(expected: list[list], actual: list[list]) -> bool:
+    """Same rows, allowing extra columns and any column order.
+
+    Each expected row must match a different actual row that holds all its values.
+    Answers often add a column the reference leaves out, such as GMV next to ROI.
+    """
+    if len(expected) != len(actual):
+        return False
+    unused = list(actual)
+    for expected_row in expected:
+        match = next((row for row in unused if _row_contains(row, expected_row)), None)
+        if match is None:
+            return False
+        unused.remove(match)
+    return True
+
+
+def _row_contains(row: list, values: list) -> bool:
+    free = list(row)
+    for value in values:
+        found = next((index for index, cell in enumerate(free) if _cell_matches(value, cell)),
+                     None)
+        if found is None:
+            return False
+        free.pop(found)
+    return True
+
+
 def execute_reference(settings: Settings, sql: str) -> list[list]:
     safe = validate_and_limit(sql, settings.sql_max_rows)
     return execute_sql(settings, safe).rows
@@ -115,6 +272,83 @@ def history_from_questions(history: list[str]) -> list[HistoryMessage]:
         messages.append(HistoryMessage(role="user", content=item))
         messages.append(HistoryMessage(role="assistant", content="已完成上一次查询", mode="query"))
     return messages
+
+
+def reply_history(answer: AnswerPayload) -> HistoryMessage | None:
+    """The reply as the frontend's buildHistory sends it; None when it sends nothing.
+
+    The backend reports "blocked" and "error" as an error event, and the frontend
+    leaves such replies, and replies without a conclusion, out of the history.
+    """
+    if answer.status in ("blocked", "error") or not answer.summary:
+        return None
+    return HistoryMessage(role="assistant", content=answer.summary, mode=answer.mode)
+
+
+def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str) -> list[HistoryMessage]:
+    """Ask the earlier questions for real and keep the history the frontend would send."""
+    history: list[HistoryMessage] = []
+    for turn in turns:
+        answer = pipeline.ask(turn, session_id, mode="query", history=history)
+        history.append(HistoryMessage(role="user", content=turn))
+        reply = reply_history(answer)
+        if reply is not None:
+            history.append(reply)
+    return history
+
+
+def case_history(pipeline: AskPipeline, question: dict, session_id: str) -> list[HistoryMessage]:
+    """The history of a case: written out, asked for real, or placeholder replies."""
+    if question.get("history_messages"):
+        return [HistoryMessage(**item) for item in question["history_messages"]]
+    if question.get("turns"):
+        return run_turns(pipeline, question["turns"], session_id)
+    return history_from_questions(question.get("history") or [])
+
+
+DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+TABLE_PATTERN = re.compile(r"\bsafe\.(\w+)\b", re.IGNORECASE)
+
+
+def failure_hint(category: str, answer: AnswerPayload, expected_sql: str,
+                 expected_rows: list[list], actual_rows: list[list],
+                 probe: ToolProbe, analysis_detail: str = "") -> str:
+    """What a failed case looks like. The cause still needs a person to read the SQL."""
+    if category == "refusal":
+        return "拒答不符"
+    if category not in ("analysis", "direct") and not expected_sql:
+        return "没有参考答案"
+    if category == "direct":
+        return "没有直接回答" if answer.sql else f"状态为 {answer.status}"
+    if answer.status in ("error", "blocked"):
+        return "字段不存在后未恢复" if probe.field_errors else "没有结果"
+    if category == "analysis":
+        if answer.summary_source != "model":
+            return "结论用了模板"
+        if "缺" in analysis_detail:
+            return "维度缺失"
+        if "数字未核对" in analysis_detail:
+            return "数字未核对"
+        return "其他"
+    if not actual_rows:
+        return "结果为空"
+    if len(expected_rows) != len(actual_rows):
+        return "行数不同"
+    if expected_rows and len(expected_rows[0]) != len(actual_rows[0]):
+        return "列数不同"
+    if set(DATE_PATTERN.findall(expected_sql)) != set(DATE_PATTERN.findall(answer.sql)):
+        return "日期不同"
+    expected_tables = {name.lower() for name in TABLE_PATTERN.findall(expected_sql)}
+    actual_tables = {name.lower() for name in TABLE_PATTERN.findall(answer.sql)}
+    if expected_tables != actual_tables:
+        return "用的表不同"
+    return "数值不同"
+
+
+def score_direct(answer: AnswerPayload) -> tuple[bool, str]:
+    """A question that needs no data: answered in text, without SQL."""
+    passed = answer.status == "text" and not answer.sql
+    return passed, f"status={answer.status}, sql={'有' if answer.sql else '无'}"
 
 
 # Words that show a plan step or query looked at a dimension.
@@ -161,9 +395,11 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
     for question in selected:
         category = question["category"]
         session_id = f"eval-{question['id']}"
-        history = history_from_questions(question.get("history") or [])
-        answer = pipeline.ask(question["question"], session_id,
-                              mode=question.get("mode", "query"), history=history)
+        history = case_history(pipeline, question, session_id)
+        # Only the last question counts; earlier turns ran above, outside the probe.
+        with ToolProbe().watching() as probe:
+            answer = pipeline.ask(question["question"], session_id,
+                                  mode=question.get("mode", "query"), history=history)
         expected_rows: list[list] = []
         if question.get("expected_sql"):
             try:
@@ -175,25 +411,40 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
                                       detail=f"参考答案执行失败：{exc}"))
                 continue
 
+        actual_rows = answer.table.rows if answer.table else []
+        loose: bool | None = None
         if category == "refusal":
             passed = answer.status == question.get("expect_status", "refused")
             detail = f"status={answer.status}"
         elif category == "analysis":
             passed, detail = score_analysis(answer, question)
+        elif category == "direct":
+            passed, detail = score_direct(answer)
         else:
-            actual_rows = answer.table.rows if answer.table else []
-            passed = answer.status == "ok" and compare_rows(expected_rows, actual_rows)
-            detail = f"status={answer.status}, expected={len(expected_rows)}, actual={len(actual_rows)}"
+            strict = answer.status == "ok" and compare_rows(expected_rows, actual_rows)
+            loose = answer.status == "ok" and compare_rows_loose(expected_rows, actual_rows)
+            passed = loose if question.get("match") == "loose" else strict
+            detail = (f"status={answer.status}, expected={len(expected_rows)}, "
+                      f"actual={len(actual_rows)}" + ("" if strict or not loose else ", 宽松比对通过"))
 
         usage = answer.usage
         report.add(CaseResult(
             id=question["id"], category=category, question=question["question"],
             passed=passed, status=answer.status, detail=detail, sql=answer.sql,
             expected_rows=len(expected_rows),
-            actual_rows=len(answer.table.rows) if answer.table else 0,
+            actual_rows=len(actual_rows),
+            summary=answer.summary,
             model_calls=usage.model_calls if usage else 0,
             input_tokens=usage.input_tokens if usage else 0,
             output_tokens=usage.output_tokens if usage else 0,
+            sql_attempts=probe.sql_attempts,
+            sql_failures=probe.sql_failures,
+            field_errors=probe.field_errors,
+            describe_calls=probe.describe_calls,
+            loose_passed=loose,
+            failure_hint="" if passed else failure_hint(
+                category, answer, question.get("expected_sql", ""), expected_rows, actual_rows,
+                probe, detail),
         ))
     return report
 
@@ -213,10 +464,12 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
     patch = nullcontext() if use_plan else mock.patch.object(planner, "_make_plan", _no_plan)
     with patch:
         for question in selected[:limit] if limit else selected:
-            history = history_from_questions(question.get("history") or [])
+            session_id = f"eval-{question['id']}"
+            history = case_history(pipeline, question, session_id)
             started = time.perf_counter()
-            answer = pipeline.ask(question["question"], f"eval-{question['id']}",
-                                  mode="analysis", history=history)
+            with ToolProbe().watching() as probe:
+                answer = pipeline.ask(question["question"], session_id,
+                                      mode="analysis", history=history)
             duration_ms = int((time.perf_counter() - started) * 1000)
             passed, detail = score_analysis(answer, question)
             usage = answer.usage
@@ -228,6 +481,12 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
                 duration_ms=duration_ms, summary=answer.summary, model_calls=calls,
                 input_tokens=usage.input_tokens if usage else 0,
                 output_tokens=usage.output_tokens if usage else 0,
+                sql_attempts=probe.sql_attempts,
+                sql_failures=probe.sql_failures,
+                field_errors=probe.field_errors,
+                describe_calls=probe.describe_calls,
+                failure_hint="" if passed else failure_hint(
+                    "analysis", answer, "", [], [], probe, detail),
             ))
     return report
 

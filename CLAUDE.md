@@ -80,6 +80,7 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 - 评测：`cd project && ../.venv/bin/python eval/run_eval.py --mode all`，默认覆盖 `eval/results/latest.json`，可用 `--output` 改路径
 - 路由评测（只测自动模式的判断，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode routing --output <路径>`
 - 分析评测（只跑分析题，统计维度覆盖和耗时，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode analysis --output <路径>`；加 `--no-plan` 用原来的单 Agent 流程对比
+- 用网页里保存的模型 key 跑评测（key 在 Docker 卷里，本机 `.env` 没有 key 时用这个）：先 `cd project && docker compose up -d --build`，再 `docker compose run --rm --no-deps -T -v "$PWD":/work -w /work app python eval/run_eval.py --mode all --output <路径>`
 
 ## 编码规范
 

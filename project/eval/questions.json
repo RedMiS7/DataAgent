@@ -423,5 +423,90 @@
       "类目",
       "商品"
     ]
+  },
+  {
+    "id": "t01",
+    "category": "multiturn",
+    "match": "loose",
+    "note": "追问换维度：沿用上一轮的 GMV 口径和时间，按渠道拆开",
+    "turns": [
+      "上个月GMV是多少？"
+    ],
+    "question": "按渠道拆一下",
+    "expected_sql": "SELECT c.name, ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.channels c ON c.id = o.channel_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY c.name"
+  },
+  {
+    "id": "t02",
+    "category": "multiturn",
+    "match": "loose",
+    "note": "追问换分组：退款金额改按退款原因看，沿用上个月",
+    "turns": [
+      "上个月退款金额最高的10个商品是哪些？"
+    ],
+    "question": "换成按退款原因看",
+    "expected_sql": "SELECT r.reason, ROUND(SUM(r.refund_amount), 2) FROM safe.refunds r WHERE r.status = 'completed' AND r.completed_at >= '2026-09-01' AND r.completed_at < '2026-10-01' GROUP BY r.reason"
+  },
+  {
+    "id": "t03",
+    "category": "multiturn",
+    "match": "loose",
+    "note": "追问加指标：保留上一轮的渠道订单数，再加 GMV",
+    "turns": [
+      "上个月各渠道的订单数是多少？"
+    ],
+    "question": "再加上GMV",
+    "expected_sql": "SELECT c.name, COUNT(DISTINCT o.id), ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.channels c ON c.id = o.channel_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY c.name"
+  },
+  {
+    "id": "t04",
+    "category": "multiturn",
+    "match": "loose",
+    "note": "上一轮失败：前端只发了用户问题、没有回答，模型只能回答最后一个问题",
+    "history_messages": [
+      {
+        "role": "user",
+        "content": "上个月各省份的退款金额是多少？"
+      }
+    ],
+    "question": "上个月的订单数是多少？",
+    "expected_sql": "SELECT COUNT(DISTINCT o.id) FROM safe.orders o WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01'"
+  },
+  {
+    "id": "t05",
+    "category": "multiturn",
+    "match": "loose",
+    "note": "真实历史下的时间追问：不能沿用上一轮的日期",
+    "turns": [
+      "上个月GMV是多少？"
+    ],
+    "question": "那上上个月呢？",
+    "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01'"
+  },
+  {
+    "id": "d01",
+    "category": "direct",
+    "mode": "auto",
+    "note": "解释口径，不需要查数",
+    "question": "GMV包不包括运费？",
+    "expected_sql": ""
+  },
+  {
+    "id": "d02",
+    "category": "direct",
+    "mode": "auto",
+    "note": "问能力范围，不需要查数",
+    "question": "你能查哪些数据？",
+    "expected_sql": ""
+  },
+  {
+    "id": "d03",
+    "category": "direct",
+    "mode": "auto",
+    "note": "改写上一轮的结论，不需要再查",
+    "turns": [
+      "上个月GMV是多少？"
+    ],
+    "question": "把这个结论写成一段话发给老板",
+    "expected_sql": ""
   }
 ]

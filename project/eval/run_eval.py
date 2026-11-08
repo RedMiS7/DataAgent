@@ -38,11 +38,25 @@ def _print_report(name: str, report: EvalReport) -> None:
     for category, bucket in sorted(report.by_category.items()):
         rate = bucket["passed"] / bucket["total"] * 100 if bucket["total"] else 0.0
         print(f"  {category}: {bucket['passed']}/{bucket['total']} ({rate:.1f}%)")
+    metrics = report.as_dict()["metrics"]
+    if metrics["questions_with_sql"]:
+        print(f"  SQL 无报错的题：{metrics['sql_clean_rate'] * 100:.1f}%"
+              f"（{metrics['questions_with_sql']} 题执行过 SQL），"
+              f"SQL {metrics['sql_attempts']} 条，失败 {metrics['sql_failures']} 条，"
+              f"其中字段不存在 {metrics['field_errors']} 次；"
+              f"describe_table {metrics['describe_calls']} 次")
+    if metrics["loose_total"]:
+        print(f"  宽松比对（允许多出的列）：{metrics['loose_passed']}/{metrics['loose_total']}")
+    if metrics["failure_hints"]:
+        hints = "，".join(f"{name} {count}" for name, count in
+                         sorted(metrics["failure_hints"].items(), key=lambda item: -item[1]))
+        print(f"  失败现象：{hints}")
     failures = [case for case in report.cases if not case.passed]
     if failures:
         print("  未通过：")
         for case in failures[:20]:
-            print(f"    - {case.id} [{case.category}] {case.question[:40]} -> {case.detail}")
+            hint = f"（{case.failure_hint}）" if case.failure_hint else ""
+            print(f"    - {case.id} [{case.category}] {case.question[:40]} -> {case.detail}{hint}")
 
 
 def main() -> int:

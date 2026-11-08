@@ -220,5 +220,69 @@
         "mode": "analysis"
       }
     ]
+  },
+  {
+    "id": "r27",
+    "category": "direct",
+    "question": "GMV包不包括运费？",
+    "expected_route": "direct"
+  },
+  {
+    "id": "r28",
+    "category": "direct",
+    "question": "退货率是怎么算的？",
+    "expected_route": "direct"
+  },
+  {
+    "id": "r29",
+    "category": "direct",
+    "question": "你能查哪些数据？",
+    "expected_route": "direct"
+  },
+  {
+    "id": "r30",
+    "category": "direct",
+    "question": "你好",
+    "expected_route": "direct"
+  },
+  {
+    "id": "r31",
+    "category": "direct",
+    "question": "把这个结论写成一段话发给老板",
+    "expected_route": "direct",
+    "history": [
+      {
+        "role": "user",
+        "content": "上个月GMV是多少？"
+      },
+      {
+        "role": "assistant",
+        "content": "上个月 GMV 为 412.3 万元。",
+        "mode": "query"
+      }
+    ]
+  },
+  {
+    "id": "r32",
+    "category": "direct",
+    "question": "把上面这段翻译成英文",
+    "expected_route": "direct",
+    "history": [
+      {
+        "role": "user",
+        "content": "最近生意怎么样？"
+      },
+      {
+        "role": "assistant",
+        "content": "最近30天销量小幅增长，童装带动明显。\n- GMV 966.6 万，比上一周期增长 6.3% [查询1]\n- 建议：加大童装投放",
+        "mode": "analysis"
+      }
+    ]
+  },
+  {
+    "id": "r33",
+    "category": "query",
+    "question": "GMV如果算上运费，上个月是多少？",
+    "expected_route": "query"
   }
 ]

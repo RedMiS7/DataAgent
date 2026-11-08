@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     embedding_batch_size: int = 10
 
+    # Tokens for the table columns in the prompt. Under it every table goes in;
+    # over it, only the tables a question needs. About half of the model's context:
+    # deepseek-chat has 64K.
+    schema_token_budget: int = 32000
+
     retrieval_top_k: int = 6
     retrieval_min_score: float = 0.35
 

@@ -101,6 +101,8 @@ class CallUsage(BaseModel):
     tool_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    # Part of input_tokens read from the provider's prompt cache, billed at a lower price.
+    cached_input_tokens: int = 0
     # Summed over calls; steps running at once make it exceed the answer's duration.
     model_ms: int = 0
 

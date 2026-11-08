@@ -20,11 +20,13 @@ SCHEMA_FILE = Path(__file__).resolve().parents[2] / "data" / "initdb" / "02_app_
 
 
 class UsageModel(ScriptedChatModel):
-    """Replays the script and reports 100 input and 10 output tokens per call."""
+    """Replays the script and reports 100 input (60 from the cache) and 10 output tokens
+    per call."""
 
     async def _call_api(self, *args: Any, **kwargs: Any) -> ChatResponse:
         response = await super()._call_api(*args, **kwargs)
-        response.usage = ChatUsage(input_tokens=100, output_tokens=10, time=0.0)
+        response.usage = ChatUsage(input_tokens=100, output_tokens=10, time=0.0,
+                                   cache_input_tokens=60)
         return response
 
 
@@ -70,10 +72,12 @@ def test_model_and_tool_calls_are_recorded_with_tokens() -> None:
         ("tester", "model", "scripted"), ("tester", "tool", "add"), ("tester", "model", "scripted")]
     assert records[0].detail == "add"
     assert (records[0].input_tokens, records[0].output_tokens) == (100, 10)
+    assert records[0].cached_tokens == 60
     assert all(item.ok for item in records)
     assert records[0].started_ms <= records[1].started_ms <= records[2].started_ms
     assert trace.usage() == {"model_calls": 2, "tool_calls": 1, "input_tokens": 200,
-                             "output_tokens": 20, "model_ms": trace.usage()["model_ms"]}
+                             "output_tokens": 20, "cached_input_tokens": 120,
+                             "model_ms": trace.usage()["model_ms"]}
 
 
 def test_a_failed_model_call_is_recorded_and_raised() -> None:

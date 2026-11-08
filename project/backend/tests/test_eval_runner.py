@@ -150,10 +150,11 @@ def test_failure_hint_names_what_went_wrong() -> None:
 def test_report_metrics_sum_the_cases() -> None:
     cases = [
         CaseResult(id="1", category="single_table", question="q", passed=True, sql_attempts=1,
-                   model_calls=2, input_tokens=100, output_tokens=10, loose_passed=True),
+                   model_calls=2, input_tokens=100, output_tokens=10, cached_input_tokens=80,
+                   loose_passed=True),
         CaseResult(id="2", category="single_table", question="q", passed=False, sql_attempts=3,
                    sql_failures=2, field_errors=1, describe_calls=1, model_calls=4,
-                   input_tokens=300, output_tokens=30, loose_passed=True,
+                   input_tokens=300, output_tokens=30, cached_input_tokens=120, loose_passed=True,
                    failure_hint="列数不同"),
         CaseResult(id="3", category="dangerous_sql", question="q", passed=True),
     ]
@@ -166,6 +167,8 @@ def test_report_metrics_sum_the_cases() -> None:
     assert metrics["describe_calls"] == 1
     assert metrics["model_calls_avg"] == 3.0
     assert metrics["input_tokens_avg"] == 200.0
+    assert metrics["cached_input_tokens_avg"] == 100.0
+    assert metrics["cache_hit_rate"] == 0.5
     assert metrics["loose_passed"] == 2 and metrics["loose_total"] == 2
     assert metrics["failure_hints"] == {"列数不同": 1}
 

@@ -65,13 +65,15 @@ class RetrievalBundle(BaseModel):
     degraded: bool = False
     degraded_reason: str = ""
 
-    def to_prompt_context(self) -> str:
+    def to_prompt_context(self, include_schema: bool = True) -> str:
+        """The retrieved knowledge as prompt text. ``include_schema=False`` leaves out the
+        table summaries and columns, when the prompt lists whole tables instead."""
         parts: list[str] = []
-        if self.tables:
+        if self.tables and include_schema:
             parts.append("【表摘要】\n" + "\n".join(
                 f"- {t.table_name}: {t.summary}" for t in self.tables))
-        if self.schema_items:
-            parts.append("【字段】\n" + "\n".join(
+        if self.schema_items and include_schema:
+            parts.append("【字段】（只列出一部分，没见过的字段先调用 describe_table）\n" + "\n".join(
                 f"- {h.item.table_name}.{h.item.column_name}: {h.item.description}"
                 + (f"（同义词：{h.item.synonyms}）" if h.item.synonyms else "")
                 + (f"（{h.item.join_hint}）" if h.item.join_hint else "")

@@ -525,8 +525,9 @@ def test_comparison_followup_compares_september_with_august(ask,
     prompts: list[str] = []
     original = AskPipeline._system_prompt
 
-    def capture(self: AskPipeline, bundle: Any, time_range: Any, mode: Any = "query") -> str:
-        prompts.append(original(self, bundle, time_range, mode))
+    def capture(self: AskPipeline, bundle: Any, time_range: Any, mode: Any = "query",
+                **kwargs: Any) -> str:
+        prompts.append(original(self, bundle, time_range, mode, **kwargs))
         return prompts[-1]
 
     monkeypatch.setattr(AskPipeline, "_system_prompt", capture)

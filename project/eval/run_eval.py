@@ -45,6 +45,10 @@ def _print_report(name: str, report: EvalReport) -> None:
               f"SQL {metrics['sql_attempts']} 条，失败 {metrics['sql_failures']} 条，"
               f"其中字段不存在 {metrics['field_errors']} 次；"
               f"describe_table {metrics['describe_calls']} 次")
+    if metrics.get("cache_hit_rate") is not None:
+        print(f"  平均输入 token {metrics['input_tokens_avg']:.0f}，"
+              f"其中缓存命中 {metrics['cached_input_tokens_avg']:.0f}，"
+              f"命中率 {metrics['cache_hit_rate'] * 100:.1f}%")
     if metrics["loose_total"]:
         print(f"  宽松比对（允许多出的列）：{metrics['loose_passed']}/{metrics['loose_total']}")
     if metrics["failure_hints"]:

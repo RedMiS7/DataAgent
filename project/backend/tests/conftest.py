@@ -11,8 +11,9 @@ import pytest  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def no_column_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tests run without a database: run_sql gets no columns and skips the column check.
-    Tests of the check set the columns themselves."""
+    """Tests run without a database: run_sql gets no columns and skips the column check,
+    and the prompt keeps the retrieved columns. Tests that need columns set them."""
     from app.agent import tools
 
     monkeypatch.setattr(tools, "known_columns", lambda settings: None)
+    monkeypatch.setattr(tools, "table_columns", lambda settings: None)

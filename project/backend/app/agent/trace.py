@@ -29,6 +29,8 @@ class CallRecord:
     duration_ms: int
     input_tokens: int = 0
     output_tokens: int = 0
+    # Input tokens the provider read from its prompt cache, part of input_tokens.
+    cached_tokens: int = 0
     ok: bool = True
     # The tools a model asked for, or what went wrong.
     detail: str = ""
@@ -45,14 +47,15 @@ class CallTrace:
         return [TraceMiddleware(self)]
 
     def add(self, agent: str, kind: Literal["model", "tool"], name: str, started: float,
-            *, input_tokens: int = 0, output_tokens: int = 0, ok: bool = True,
-            detail: str = "") -> None:
+            *, input_tokens: int = 0, output_tokens: int = 0, cached_tokens: int = 0,
+            ok: bool = True, detail: str = "") -> None:
         now = time.perf_counter()
         self.records.append(CallRecord(
             agent=agent, kind=kind, name=name,
             started_ms=int((started - self.started) * 1000),
             duration_ms=int((now - started) * 1000),
-            input_tokens=input_tokens, output_tokens=output_tokens, ok=ok,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            cached_tokens=cached_tokens, ok=ok,
             detail=detail[:DETAIL_LIMIT],
         ))
 
@@ -70,6 +73,10 @@ class CallTrace:
     def output_tokens(self) -> int:
         return sum(record.output_tokens for record in self._models())
 
+    @property
+    def cached_tokens(self) -> int:
+        return sum(record.cached_tokens for record in self._models())
+
     def usage(self) -> dict[str, int]:
         models = self._models()
         return {
@@ -77,6 +84,7 @@ class CallTrace:
             "tool_calls": len(self.records) - len(models),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "cached_input_tokens": self.cached_tokens,
             # Steps run at once, so this can exceed the time the question took.
             "model_ms": sum(record.duration_ms for record in models),
         }
@@ -101,6 +109,7 @@ class TraceMiddleware(MiddlewareBase):
         self.trace.add(agent.name, "model", name, started,
                        input_tokens=usage.input_tokens if usage else 0,
                        output_tokens=usage.output_tokens if usage else 0,
+                       cached_tokens=usage.cache_input_tokens if usage else 0,
                        detail=",".join(tools))
 
     async def on_model_call(self, agent: Any, input_kwargs: dict,

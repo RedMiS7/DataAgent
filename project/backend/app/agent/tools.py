@@ -11,6 +11,7 @@ from typing import Any
 
 from agentscope.permission import PermissionBehavior, PermissionDecision
 from agentscope.tool import FunctionTool, Toolkit
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..config import Settings
@@ -18,8 +19,15 @@ from ..db.engine import app_connection, business_connection
 from ..nl2sql.executor import ExecutionResult, SQLExecutionError, execute_sql
 from ..safety.validator import Columns, SQLValidationError, unknown_column_hint, validate_and_limit
 from ..semantic import repository
-from ..semantic.models import RetrievalBundle, SchemaItem
+from ..semantic.models import RetrievalBundle
 from ..semantic.retriever import SemanticRetriever
+from ..semantic.schema_context import (
+    SchemaContext,
+    TableColumns,
+    bare_name,
+    build_schema_context,
+    render_table,
+)
 from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
@@ -38,7 +46,7 @@ MYSQL_UNKNOWN_COLUMN = re.compile(r"Unknown column '([^']+)'")
 
 # The real columns of each business database, read on first use. A schema change
 # needs a restart, like the semantic layer.
-_columns_cache: dict[str, Columns] = {}
+_columns_cache: dict[str, dict[str, list[tuple[str, str]]]] = {}
 _columns_lock = threading.Lock()
 
 READ_ONLY_PERMISSION = PermissionDecision(
@@ -82,18 +90,6 @@ def _database_error(exc: SQLExecutionError) -> str:
     return str(getattr(exc.__cause__, "orig", None) or exc)
 
 
-def _column_line(column: str, column_type: str, item: SchemaItem | None) -> str:
-    line = f"- {column}（{column_type}）"
-    if item is None:
-        return line
-    line += f"：{item.description}"
-    if item.synonyms:
-        line += f"（同义词：{item.synonyms}）"
-    if item.join_hint:
-        line += f"（{item.join_hint}）"
-    return line
-
-
 def describe_tables(settings: Settings, names: list[str]) -> str:
     """List real columns, adding descriptions where the semantic layer has them.
 
@@ -114,9 +110,7 @@ def describe_tables(settings: Settings, names: list[str]) -> str:
         if table not in columns:
             unknown.append(name)
             continue
-        lines = [_column_line(column, column_type, items.get((f"{prefix}{table}", column)))
-                 for column, column_type in columns[table]]
-        sections.append("\n".join([f"{prefix}{table}：", *lines]))
+        sections.append(render_table(table, columns[table], items, prefix))
     if unknown:
         sections.append(f"没有这些表：{'、'.join(unknown)}。可用的表：{'、'.join(sorted(columns))}")
     return "\n\n".join(sections)
@@ -156,22 +150,60 @@ def _make_search(context: AgentRunContext) -> Callable[[str], str]:
     return search_semantic
 
 
-def known_columns(settings: Settings) -> Columns | None:
-    """The real columns of the business database, as {table: [column]}; None when they
-    cannot be read, and SQL then runs without the column check."""
+def table_columns(settings: Settings) -> TableColumns | None:
+    """The real columns and types of the business database, as {table: [(column, type)]};
+    None when they cannot be read."""
     key = f"{settings.mysql_host}:{settings.mysql_port}/{settings.mysql_business_db}"
     with _columns_lock:
         if key in _columns_cache:
             return _columns_cache[key]
         try:
             with business_connection(settings) as conn:
-                raw = repository.fetch_table_columns(conn)
+                columns = repository.fetch_table_columns(conn)
         except SQLAlchemyError as exc:
-            logger.warning("读取字段失败，本次不做字段校验 error=%s", exc)
+            logger.warning("读取字段失败 error=%s", exc)
             return None
-        columns = {table: [name for name, _ in items] for table, items in raw.items()}
         _columns_cache[key] = columns
         return columns
+
+
+def known_columns(settings: Settings) -> Columns | None:
+    """The real column names, as {table: [column]}; None when they cannot be read, and
+    SQL then runs without the column check."""
+    columns = table_columns(settings)
+    if columns is None:
+        return None
+    return {table: [name for name, _ in items] for table, items in columns.items()}
+
+
+def schema_context(settings: Settings, conn: Connection, bundle: RetrievalBundle,
+                   wanted: list[str]) -> SchemaContext | None:
+    """The tables for the prompt, each with all of its columns; None when the columns
+    cannot be read, and the prompt keeps the retrieved columns instead.
+
+    ``wanted`` are tables from outside retrieval, such as those of the recent SQL; they
+    come after what retrieval found.
+    """
+    columns = table_columns(settings)
+    if not columns:
+        return None
+    prefix = f"{settings.mysql_business_db}."
+    items = repository.fetch_schema_items(conn, enabled_only=False)
+    tables = [hit.item.table_name for hit in bundle.schema_items]
+    for hit in bundle.metrics:
+        tables.extend(part for part in hit.metric.related_tables.split(",") if part.strip())
+    for case in bundle.cases:
+        tables.extend(table_names(case.sql_text, settings.mysql_business_db))
+    tables.extend(wanted)
+    summaries = {bare_name(table.table_name, prefix): table.summary for table in bundle.tables}
+    return build_schema_context(columns, items, summaries, tables,
+                                settings.schema_token_budget, prefix)
+
+
+def table_names(sql: str, schema: str) -> list[str]:
+    """The tables a SQL names as ``schema.table``, in order."""
+    found = re.findall(rf"\b{re.escape(schema)}\.(\w+)\b", sql, re.IGNORECASE)
+    return list(dict.fromkeys(name.lower() for name in found))
 
 
 def _column_hint(settings: Settings, sql: str, message: str) -> str:

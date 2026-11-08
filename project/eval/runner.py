@@ -45,6 +45,8 @@ class CaseResult:
     model_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    # Part of input_tokens read from the model's prompt cache.
+    cached_input_tokens: int = 0
     # SQL the model sent to run_sql, and how many of them failed validation or execution.
     sql_attempts: int = 0
     sql_failures: int = 0
@@ -142,6 +144,7 @@ def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
     with_sql = [case for case in cases if case.sql_attempts]
     with_model = [case for case in cases if case.model_calls]
     compared = [case for case in cases if case.loose_passed is not None]
+    total_input = sum(case.input_tokens for case in cases)
     return {
         # Questions whose SQL never failed; in query mode, the first SQL ran.
         "sql_clean_rate": (round(sum(case.sql_failures == 0 for case in with_sql) / len(with_sql), 4)
@@ -154,6 +157,10 @@ def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
         "model_calls_avg": _average([case.model_calls for case in with_model]),
         "input_tokens_avg": _average([case.input_tokens for case in with_model]),
         "output_tokens_avg": _average([case.output_tokens for case in with_model]),
+        "cached_input_tokens_avg": _average([case.cached_input_tokens for case in with_model]),
+        # Share of all input tokens read from the prompt cache.
+        "cache_hit_rate": (round(sum(case.cached_input_tokens for case in cases) / total_input, 4)
+                           if total_input else None),
         "loose_passed": sum(bool(case.loose_passed) for case in compared),
         "loose_total": len(compared),
         "failure_hints": dict(Counter(case.failure_hint for case in cases
@@ -481,6 +488,7 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             model_calls=usage.model_calls if usage else 0,
             input_tokens=usage.input_tokens if usage else 0,
             output_tokens=usage.output_tokens if usage else 0,
+            cached_input_tokens=usage.cached_input_tokens if usage else 0,
             sql_attempts=probe.sql_attempts,
             sql_failures=probe.sql_failures,
             field_errors=probe.field_errors,
@@ -525,6 +533,7 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
                 duration_ms=duration_ms, summary=answer.summary, model_calls=calls,
                 input_tokens=usage.input_tokens if usage else 0,
                 output_tokens=usage.output_tokens if usage else 0,
+            cached_input_tokens=usage.cached_input_tokens if usage else 0,
                 sql_attempts=probe.sql_attempts,
                 sql_failures=probe.sql_failures,
                 field_errors=probe.field_errors,

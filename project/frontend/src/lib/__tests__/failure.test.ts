@@ -31,6 +31,8 @@ describe("failure notice", () => {
   it("shows nothing for a normal answer", () => {
     expect(failureNotice(answer())).toBeNull();
     expect(failureNotice(answer({ status: "empty" }))).toBeNull();
+    expect(failureNotice(answer({ status: "text", sql: "" }))).toBeNull();
+    expect(canGiveFeedback(answer({ status: "text", sql: "" }))).toBe(true);
   });
 
   it("warns on a partial answer with the reason and what to try", () => {

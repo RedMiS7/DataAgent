@@ -15,7 +15,7 @@ import { downloadCsv } from "../../lib/csv";
 import { canGiveFeedback, failureNotice, sqlTabLabel } from "../../lib/failure";
 import { groupResults } from "../../lib/plan";
 import { usageDetail, usageLabel } from "../../lib/usage";
-import { suggestsAnalysis } from "../../lib/modes";
+import { routeLabel, suggestsAnalysis } from "../../lib/modes";
 import { parseAnalysisSummary, type SummaryPart } from "../../lib/summary";
 import type { AnswerPayload, PlanStep, QueryResult, TableBlock } from "../../types";
 import ChartView from "../ChartView";
@@ -245,7 +245,7 @@ function Meta({ answer }: { answer: AnswerPayload }) {
       {answer.route && (
         <Tooltip title={answer.route.reason || undefined}>
           <span className={answer.route.source === "fallback" ? "warn" : undefined}>
-            自动判断：{answer.route.chosen === "analysis" ? "分析" : "查询"}
+            自动判断：{routeLabel(answer.route.chosen)}
           </span>
         </Tooltip>
       )}
@@ -307,7 +307,10 @@ export default function AnswerCard({
       {answer && !refused && (
         <>
           <FailureView answer={answer} />
-          {answer.summary && (analysis ? (
+          {answer.summary && (answer.status === "text" ? (
+            // Answered without querying: a definition or a rewrite, often several lines.
+            <p className="answer-text">{answer.summary}</p>
+          ) : analysis ? (
             <AnalysisSummaryView text={answer.summary} onCite={cite} />
           ) : (
             <h2 className="answer-headline">{answer.summary}</h2>
@@ -336,7 +339,7 @@ export default function AnswerCard({
               onCopy={onCopy}
             />
           </div>
-          {!analysis && canRegenerate && suggestsAnalysis(answer.question) && (
+          {!analysis && answer.status !== "text" && canRegenerate && suggestsAnalysis(answer.question) && (
             <button type="button" className="reanalyze" onClick={onReanalyze}>
               用分析模式重新回答
             </button>

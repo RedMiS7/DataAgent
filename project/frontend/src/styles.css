@@ -651,6 +651,14 @@ button:focus-visible {
   word-break: break-word;
 }
 
+.answer-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .analysis-points {
   margin: 10px 0 0;
   padding-left: 18px;

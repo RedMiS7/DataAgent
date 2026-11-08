@@ -36,7 +36,8 @@ HISTORY_MAX_CHARS = 4000
 
 
 # How an earlier reply ended; "stopped" means the user stopped it before an answer.
-HistoryStatus = Literal["ok", "empty", "partial", "refused", "blocked", "error", "stopped"]
+HistoryStatus = Literal["ok", "empty", "partial", "text", "refused", "blocked", "error",
+                        "stopped"]
 
 
 class HistoryMessage(BaseModel):
@@ -48,11 +49,15 @@ class HistoryMessage(BaseModel):
     status: HistoryStatus | None = None
 
 
+# "direct": answered from the conversation and the metric definitions, without SQL.
+RouteChoice = Literal["query", "analysis", "direct"]
+
+
 class RouteInfo(BaseModel):
     """How an "auto" question was routed."""
 
     requested: RequestMode
-    chosen: AskMode
+    chosen: RouteChoice
     reason: str = ""
     source: Literal["llm", "fallback"]
 
@@ -85,8 +90,9 @@ class CallUsage(BaseModel):
     model_ms: int = 0
 
 
-# "partial": some queries ran but the answer is incomplete; "error": no query result at all.
-AnswerStatus = Literal["ok", "empty", "partial", "refused", "blocked", "error"]
+# "partial": some queries ran but the answer is incomplete; "error": no query result at all;
+# "text": answered without querying, e.g. a metric definition.
+AnswerStatus = Literal["ok", "empty", "partial", "text", "refused", "blocked", "error"]
 FailureKind = Literal["timeout", "sql_failed", "model_error", "no_answer", "step_failed",
                       "unexpected"]
 

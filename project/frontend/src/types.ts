@@ -1,4 +1,4 @@
-import type { AnswerMode, AskMode } from "./lib/modes";
+import type { AnswerMode, AskMode, RouteChoice } from "./lib/modes";
 
 export type ChartType = "line" | "bar" | "pie" | "table";
 
@@ -51,8 +51,11 @@ export interface RetrievalView {
   degraded_reason: string;
 }
 
-/** "partial": some queries ran but the answer is incomplete; "error": no query result. */
-export type AnswerStatus = "ok" | "empty" | "partial" | "refused" | "blocked" | "error";
+/**
+ * "partial": some queries ran but the answer is incomplete; "error": no query result;
+ * "text": answered without querying, e.g. a metric definition.
+ */
+export type AnswerStatus = "ok" | "empty" | "partial" | "text" | "refused" | "blocked" | "error";
 
 export type FailureKind =
   | "timeout"
@@ -98,7 +101,7 @@ export interface HistoryMessage {
 
 export interface RouteInfo {
   requested: AskMode;
-  chosen: AnswerMode;
+  chosen: RouteChoice;
   reason: string;
   source: "llm" | "fallback";
 }

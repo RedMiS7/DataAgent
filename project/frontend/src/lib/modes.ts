@@ -2,6 +2,15 @@
 export type AnswerMode = "query" | "analysis";
 /** The mode a question is sent with; "auto" lets the backend choose. */
 export type AskMode = "auto" | AnswerMode;
+/** What the router chose in auto mode; "direct" answers without querying. */
+export type RouteChoice = AnswerMode | "direct";
+
+const ROUTE_LABELS: Record<RouteChoice, string> = { query: "查询", analysis: "分析", direct: "直接回答" };
+
+/** The label of an auto-mode decision; unknown choices read as a query. */
+export function routeLabel(choice: RouteChoice | string): string {
+  return ROUTE_LABELS[choice as RouteChoice] ?? ROUTE_LABELS.query;
+}
 
 export const DEFAULT_MODE: AskMode = "auto";
 

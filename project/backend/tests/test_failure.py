@@ -101,7 +101,8 @@ def ask(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_failures_are_sent_as_answers(ask) -> None:
-    answer, events = ask([text("这个问题我答不了")])
+    # Neither a query nor any text: a text reply alone is now a direct answer.
+    answer, events = ask([text("")])
     assert answer.status == "error"
     assert [event for event, _ in events if event in ("answer", "error")] == ["answer"]
     assert events[-1][1]["failure"]["kind"] == "no_answer"

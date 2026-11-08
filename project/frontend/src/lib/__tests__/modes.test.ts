@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadSavedMode, saveMode, suggestsAnalysis } from "../modes";
+import { loadSavedMode, routeLabel, saveMode, suggestsAnalysis } from "../modes";
 
 function fakeStorage() {
   const data = new Map<string, string>();
@@ -45,5 +45,17 @@ describe("suggestsAnalysis", () => {
     ["销量最高的 10 个商品", false],
   ])("%s -> %s", (question, expected) => {
     expect(suggestsAnalysis(question)).toBe(expected);
+  });
+});
+
+describe("routeLabel", () => {
+  it("names each choice of the router", () => {
+    expect(routeLabel("query")).toBe("查询");
+    expect(routeLabel("analysis")).toBe("分析");
+    expect(routeLabel("direct")).toBe("直接回答");
+  });
+
+  it("reads an unknown choice as a query", () => {
+    expect(routeLabel("other")).toBe("查询");
   });
 });

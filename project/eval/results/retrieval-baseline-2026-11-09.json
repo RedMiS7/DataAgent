@@ -1,0 +1,5218 @@
+{
+  "mode": "retrieval",
+  "categories": [],
+  "as_of_date": "2026-10-31",
+  "embedding_model": "text-embedding-v3",
+  "variants": {
+    "vector": {
+      "total": 64,
+      "passed": 54,
+      "recall": 0.8438,
+      "table_recall": 0.9077,
+      "tables_avg": 4.8,
+      "tokens_avg": 1517,
+      "cases": [
+        {
+          "id": "q01",
+          "category": "single_table",
+          "question": "最近30天有多少订单？",
+          "query": "最近30天有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "q02",
+          "category": "single_table",
+          "question": "上个月有多少客户注册？",
+          "query": "上个月有多少客户注册？",
+          "expected": [
+            "customers"
+          ],
+          "found": [
+            "customers",
+            "orders",
+            "ad_daily_stats",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1538,
+          "passed": true
+        },
+        {
+          "id": "q03",
+          "category": "single_table",
+          "question": "在售商品有多少个？",
+          "query": "在售商品有多少个？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "q04",
+          "category": "single_table",
+          "question": "最近7天退款金额合计是多少？",
+          "query": "最近7天退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "q05",
+          "category": "single_table",
+          "question": "上个月广告花费是多少？",
+          "query": "上个月广告花费是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1266,
+          "passed": true
+        },
+        {
+          "id": "q06",
+          "category": "single_table",
+          "question": "一共有几个渠道？",
+          "query": "一共有几个渠道？",
+          "expected": [
+            "channels"
+          ],
+          "found": [
+            "channels",
+            "orders",
+            "ad_campaigns",
+            "shipments",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1693,
+          "passed": true
+        },
+        {
+          "id": "q07",
+          "category": "single_table",
+          "question": "上个月有多少订单被取消？",
+          "query": "上个月有多少订单被取消？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "refunds",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "q08",
+          "category": "single_table",
+          "question": "上个月各物流承运商发了多少包裹？",
+          "query": "上个月各物流承运商发了多少包裹？",
+          "expected": [
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "q09",
+          "category": "single_table",
+          "question": "最近30天订单数最多的5个省份是哪些？",
+          "query": "最近30天订单数最多的5个省份是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "customers",
+            "ad_daily_stats",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1795,
+          "passed": true
+        },
+        {
+          "id": "q10",
+          "category": "single_table",
+          "question": "有多少商品已经下架？",
+          "query": "有多少商品已经下架？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "m01",
+          "category": "multi_table",
+          "question": "上个月各商品类目的GMV是多少？",
+          "query": "上个月各商品类目的GMV是多少？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "products",
+            "categories",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2060,
+          "passed": true
+        },
+        {
+          "id": "m02",
+          "category": "multi_table",
+          "question": "最近30天各渠道的订单数是多少？",
+          "query": "最近30天各渠道的订单数是多少？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [
+            "channels"
+          ],
+          "tokens": 1615,
+          "passed": false
+        },
+        {
+          "id": "m03",
+          "category": "multi_table",
+          "question": "上个月退款金额最高的10个商品是哪些？",
+          "query": "上个月退款金额最高的10个商品是哪些？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1059,
+          "passed": false
+        },
+        {
+          "id": "m04",
+          "category": "multi_table",
+          "question": "最近30天各渠道的ROI是多少？",
+          "query": "最近30天各渠道的ROI是多少？",
+          "expected": [
+            "ad_campaigns",
+            "ad_daily_stats",
+            "channels"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "channels",
+            "orders",
+            "ad_campaigns",
+            "refunds",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "m05",
+          "category": "multi_table",
+          "question": "上个月各承运商的平均签收时长是多少小时？",
+          "query": "上个月各承运商的平均签收时长是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "m06",
+          "category": "multi_table",
+          "question": "上个月各省份的客单价是多少？",
+          "query": "上个月各省份的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1496,
+          "passed": true
+        },
+        {
+          "id": "m07",
+          "category": "multi_table",
+          "question": "上个月销量最高的10个商品是哪些？",
+          "query": "上个月销量最高的10个商品是哪些？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "orders",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "m08",
+          "category": "multi_table",
+          "question": "最近30天订单最多的5个城市是哪些？",
+          "query": "最近30天订单最多的5个城市是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "customers",
+            "shipments",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1795,
+          "passed": true
+        },
+        {
+          "id": "m09",
+          "category": "multi_table",
+          "question": "上个月各渠道的退款金额是多少？",
+          "query": "上个月各渠道的退款金额是多少？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [
+            "channels"
+          ],
+          "tokens": 1358,
+          "passed": false
+        },
+        {
+          "id": "m10",
+          "category": "multi_table",
+          "question": "上个月各承运商的退款金额是多少？",
+          "query": "上个月各承运商的退款金额是多少？",
+          "expected": [
+            "refunds",
+            "shipments"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "shipments"
+          ],
+          "tokens": 1059,
+          "passed": false
+        },
+        {
+          "id": "i01",
+          "category": "metric",
+          "question": "上个月的GMV是多少？",
+          "query": "上个月的GMV是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "i02",
+          "category": "metric",
+          "question": "上个月的退货率是多少？",
+          "query": "上个月的退货率是多少？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "i03",
+          "category": "metric",
+          "question": "最近30天的ROI是多少？",
+          "query": "最近30天的ROI是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "i04",
+          "category": "metric",
+          "question": "上个月的客单价是多少？",
+          "query": "上个月的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "ad_daily_stats",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "i05",
+          "category": "metric",
+          "question": "上个月的平均发货时效是多少小时？",
+          "query": "上个月的平均发货时效是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "ad_daily_stats",
+            "refunds",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "i06",
+          "category": "metric",
+          "question": "上个月商品销量合计是多少件？",
+          "query": "上个月商品销量合计是多少件？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "i07",
+          "category": "metric",
+          "question": "上个月退款金额合计是多少？",
+          "query": "上个月退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "i08",
+          "category": "metric",
+          "question": "上个月有多少订单？",
+          "query": "上个月有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "f01",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "refunds",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "f02",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近7天的订单数是多少？；追问：那上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "f03",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月退款金额最高的商品是哪个？；追问：那上上个月呢？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1059,
+          "passed": false
+        },
+        {
+          "id": "f04",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近30天的GMV是多少？；追问：那上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "f05",
+          "category": "followup",
+          "question": "上上个月哪个商品卖的最差",
+          "query": "上上个月哪个商品卖的最差",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "a01",
+          "category": "attribution",
+          "question": "最近的退货率为什么涨了？",
+          "query": "最近的退货率为什么涨了？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "a02",
+          "category": "attribution",
+          "question": "上个月退货率为什么上升？",
+          "query": "上个月退货率为什么上升？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_daily_stats",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "a03",
+          "category": "attribution",
+          "question": "最近30天退货率变化的原因是什么？",
+          "query": "最近30天退货率变化的原因是什么？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "a04",
+          "category": "attribution",
+          "question": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "query": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders",
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [
+            "channels",
+            "products"
+          ],
+          "tokens": 1358,
+          "passed": false
+        },
+        {
+          "id": "n01",
+          "category": "analysis",
+          "question": "分析一下最近30天的销量，你能得出什么结论？",
+          "query": "分析一下最近30天的销量，你能得出什么结论？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "ad_daily_stats",
+            "products",
+            "orders",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1896,
+          "passed": true
+        },
+        {
+          "id": "n02",
+          "category": "analysis",
+          "question": "最近生意怎么样？",
+          "query": "最近生意怎么样？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1896,
+          "passed": true
+        },
+        {
+          "id": "n03",
+          "category": "analysis",
+          "question": "帮我看看退货情况，有什么问题吗？",
+          "query": "帮我看看退货情况，有什么问题吗？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "n04",
+          "category": "analysis",
+          "question": "下个月我应该重点推哪些商品？",
+          "query": "下个月我应该重点推哪些商品？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "ad_daily_stats",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "n05",
+          "category": "analysis",
+          "question": "今天有什么需要我注意的？",
+          "query": "今天有什么需要我注意的？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1892,
+          "passed": true
+        },
+        {
+          "id": "n06",
+          "category": "analysis",
+          "question": "上个月GMV为什么比上上个月低？",
+          "query": "上个月GMV为什么比上上个月低？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "products",
+            "refunds",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1896,
+          "passed": true
+        },
+        {
+          "id": "n07",
+          "category": "analysis",
+          "question": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "query": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1523,
+          "passed": true
+        },
+        {
+          "id": "n08",
+          "category": "analysis",
+          "question": "哪个渠道最值得加大投入？",
+          "query": "哪个渠道最值得加大投入？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "channels",
+            "ad_campaigns",
+            "orders",
+            "ad_daily_stats",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1436,
+          "passed": true
+        },
+        {
+          "id": "n09",
+          "category": "analysis",
+          "question": "本月退款为什么变多了？",
+          "query": "本月退款为什么变多了？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "n10",
+          "category": "analysis",
+          "question": "最近物流有没有拖后腿？",
+          "query": "最近物流有没有拖后腿？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "n11",
+          "category": "analysis",
+          "question": "各类目最近表现怎么样，哪些在下滑？",
+          "query": "各类目最近表现怎么样，哪些在下滑？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "refunds",
+            "orders",
+            "ad_daily_stats",
+            "categories",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1803,
+          "passed": true
+        },
+        {
+          "id": "n12",
+          "category": "analysis",
+          "question": "老客复购情况怎么样？",
+          "query": "老客复购情况怎么样？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "refunds",
+            "customers",
+            "orders",
+            "products",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1520,
+          "passed": true
+        },
+        {
+          "id": "n13",
+          "category": "analysis",
+          "question": "上个月客单价为什么下降了？",
+          "query": "上个月客单价为什么下降了？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "orders",
+            "products",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "n14",
+          "category": "analysis",
+          "question": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "query": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "shipments",
+            "orders",
+            "order_items",
+            "products",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1707,
+          "passed": true
+        },
+        {
+          "id": "n15",
+          "category": "analysis",
+          "question": "童装类目最近怎么样？",
+          "query": "童装类目最近怎么样？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "categories",
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1504,
+          "passed": true
+        },
+        {
+          "id": "t01",
+          "category": "multiturn",
+          "question": "按渠道拆一下",
+          "query": "上个月GMV是多少？；追问：按渠道拆一下",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "channels",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1528,
+          "passed": true
+        },
+        {
+          "id": "t02",
+          "category": "multiturn",
+          "question": "换成按退款原因看",
+          "query": "上个月退款金额最高的10个商品是哪些？；追问：换成按退款原因看",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "t03",
+          "category": "multiturn",
+          "question": "再加上GMV",
+          "query": "上个月各渠道的订单数是多少？；追问：再加上GMV",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "order_items",
+            "channels",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1785,
+          "passed": true
+        },
+        {
+          "id": "t04",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "t05",
+          "category": "multiturn",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "refunds",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "t06",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "c01",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月按退款申请时间算，各渠道的退款金额是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [
+            "channels"
+          ],
+          "tokens": 1358,
+          "passed": false
+        },
+        {
+          "id": "c02",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道的销售额是多少？这次要把运费也算进去；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "order_items",
+            "channels",
+            "ad_daily_stats",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1785,
+          "passed": true
+        },
+        {
+          "id": "c03",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各省份一共有多少订单？已取消的订单也要算上；追问：那上上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "shipments",
+            "orders",
+            "ad_daily_stats",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1795,
+          "passed": true
+        },
+        {
+          "id": "c04",
+          "category": "consistency",
+          "question": "那上个月呢？",
+          "query": "最近30天各类目的销量是多少？只看直播带货渠道；追问：那上个月呢？",
+          "expected": [
+            "categories",
+            "channels",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "orders",
+            "shipments"
+          ],
+          "missing": [
+            "categories",
+            "channels"
+          ],
+          "tokens": 1527,
+          "passed": false
+        },
+        {
+          "id": "c05",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道因为质量问题退了多少钱？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [
+            "channels"
+          ],
+          "tokens": 1358,
+          "passed": false
+        },
+        {
+          "id": "c06",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月客单价按订单总金额（含运费）算，各渠道是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [
+            "channels"
+          ],
+          "tokens": 1615,
+          "passed": false
+        }
+      ]
+    },
+    "vector+connect": {
+      "total": 64,
+      "passed": 59,
+      "recall": 0.9219,
+      "table_recall": 0.9538,
+      "tables_avg": 5.9,
+      "tokens_avg": 1795,
+      "cases": [
+        {
+          "id": "q01",
+          "category": "single_table",
+          "question": "最近30天有多少订单？",
+          "query": "最近30天有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "q02",
+          "category": "single_table",
+          "question": "上个月有多少客户注册？",
+          "query": "上个月有多少客户注册？",
+          "expected": [
+            "customers"
+          ],
+          "found": [
+            "customers",
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1985,
+          "passed": true
+        },
+        {
+          "id": "q03",
+          "category": "single_table",
+          "question": "在售商品有多少个？",
+          "query": "在售商品有多少个？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "q04",
+          "category": "single_table",
+          "question": "最近7天退款金额合计是多少？",
+          "query": "最近7天退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "q05",
+          "category": "single_table",
+          "question": "上个月广告花费是多少？",
+          "query": "上个月广告花费是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "channels",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1436,
+          "passed": true
+        },
+        {
+          "id": "q06",
+          "category": "single_table",
+          "question": "一共有几个渠道？",
+          "query": "一共有几个渠道？",
+          "expected": [
+            "channels"
+          ],
+          "found": [
+            "channels",
+            "orders",
+            "ad_campaigns",
+            "shipments",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1693,
+          "passed": true
+        },
+        {
+          "id": "q07",
+          "category": "single_table",
+          "question": "上个月有多少订单被取消？",
+          "query": "上个月有多少订单被取消？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "refunds",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "q08",
+          "category": "single_table",
+          "question": "上个月各物流承运商发了多少包裹？",
+          "query": "上个月各物流承运商发了多少包裹？",
+          "expected": [
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "q09",
+          "category": "single_table",
+          "question": "最近30天订单数最多的5个省份是哪些？",
+          "query": "最近30天订单数最多的5个省份是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "customers",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2242,
+          "passed": true
+        },
+        {
+          "id": "q10",
+          "category": "single_table",
+          "question": "有多少商品已经下架？",
+          "query": "有多少商品已经下架？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "m01",
+          "category": "multi_table",
+          "question": "上个月各商品类目的GMV是多少？",
+          "query": "上个月各商品类目的GMV是多少？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "products",
+            "categories",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2507,
+          "passed": true
+        },
+        {
+          "id": "m02",
+          "category": "multi_table",
+          "question": "最近30天各渠道的订单数是多少？",
+          "query": "最近30天各渠道的订单数是多少？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "m03",
+          "category": "multi_table",
+          "question": "上个月退款金额最高的10个商品是哪些？",
+          "query": "上个月退款金额最高的10个商品是哪些？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1059,
+          "passed": false
+        },
+        {
+          "id": "m04",
+          "category": "multi_table",
+          "question": "最近30天各渠道的ROI是多少？",
+          "query": "最近30天各渠道的ROI是多少？",
+          "expected": [
+            "ad_campaigns",
+            "ad_daily_stats",
+            "channels"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "channels",
+            "ad_campaigns",
+            "orders",
+            "refunds",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "m05",
+          "category": "multi_table",
+          "question": "上个月各承运商的平均签收时长是多少小时？",
+          "query": "上个月各承运商的平均签收时长是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "m06",
+          "category": "multi_table",
+          "question": "上个月各省份的客单价是多少？",
+          "query": "上个月各省份的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "shipments",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1496,
+          "passed": true
+        },
+        {
+          "id": "m07",
+          "category": "multi_table",
+          "question": "上个月销量最高的10个商品是哪些？",
+          "query": "上个月销量最高的10个商品是哪些？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "orders",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "m08",
+          "category": "multi_table",
+          "question": "最近30天订单最多的5个城市是哪些？",
+          "query": "最近30天订单最多的5个城市是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "customers",
+            "shipments",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2242,
+          "passed": true
+        },
+        {
+          "id": "m09",
+          "category": "multi_table",
+          "question": "上个月各渠道的退款金额是多少？",
+          "query": "上个月各渠道的退款金额是多少？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "m10",
+          "category": "multi_table",
+          "question": "上个月各承运商的退款金额是多少？",
+          "query": "上个月各承运商的退款金额是多少？",
+          "expected": [
+            "refunds",
+            "shipments"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "shipments"
+          ],
+          "tokens": 1059,
+          "passed": false
+        },
+        {
+          "id": "i01",
+          "category": "metric",
+          "question": "上个月的GMV是多少？",
+          "query": "上个月的GMV是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "i02",
+          "category": "metric",
+          "question": "上个月的退货率是多少？",
+          "query": "上个月的退货率是多少？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "i03",
+          "category": "metric",
+          "question": "最近30天的ROI是多少？",
+          "query": "最近30天的ROI是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "refunds",
+            "products",
+            "ad_campaigns",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "i04",
+          "category": "metric",
+          "question": "上个月的客单价是多少？",
+          "query": "上个月的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "products",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "i05",
+          "category": "metric",
+          "question": "上个月的平均发货时效是多少小时？",
+          "query": "上个月的平均发货时效是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "refunds",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "i06",
+          "category": "metric",
+          "question": "上个月商品销量合计是多少件？",
+          "query": "上个月商品销量合计是多少件？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "i07",
+          "category": "metric",
+          "question": "上个月退款金额合计是多少？",
+          "query": "上个月退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "i08",
+          "category": "metric",
+          "question": "上个月有多少订单？",
+          "query": "上个月有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "f01",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "ad_campaigns",
+            "refunds",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "f02",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近7天的订单数是多少？；追问：那上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "f03",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月退款金额最高的商品是哪个？；追问：那上上个月呢？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1059,
+          "passed": false
+        },
+        {
+          "id": "f04",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近30天的GMV是多少？；追问：那上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "f05",
+          "category": "followup",
+          "question": "上上个月哪个商品卖的最差",
+          "query": "上上个月哪个商品卖的最差",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "a01",
+          "category": "attribution",
+          "question": "最近的退货率为什么涨了？",
+          "query": "最近的退货率为什么涨了？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "a02",
+          "category": "attribution",
+          "question": "上个月退货率为什么上升？",
+          "query": "上个月退货率为什么上升？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "products",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "a03",
+          "category": "attribution",
+          "question": "最近30天退货率变化的原因是什么？",
+          "query": "最近30天退货率变化的原因是什么？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "a04",
+          "category": "attribution",
+          "question": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "query": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders",
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1805,
+          "passed": false
+        },
+        {
+          "id": "n01",
+          "category": "analysis",
+          "question": "分析一下最近30天的销量，你能得出什么结论？",
+          "query": "分析一下最近30天的销量，你能得出什么结论？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "products",
+            "orders",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2173,
+          "passed": true
+        },
+        {
+          "id": "n02",
+          "category": "analysis",
+          "question": "最近生意怎么样？",
+          "query": "最近生意怎么样？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "products",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2173,
+          "passed": true
+        },
+        {
+          "id": "n03",
+          "category": "analysis",
+          "question": "帮我看看退货情况，有什么问题吗？",
+          "query": "帮我看看退货情况，有什么问题吗？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "n04",
+          "category": "analysis",
+          "question": "下个月我应该重点推哪些商品？",
+          "query": "下个月我应该重点推哪些商品？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "n05",
+          "category": "analysis",
+          "question": "今天有什么需要我注意的？",
+          "query": "今天有什么需要我注意的？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "shipments",
+            "orders",
+            "channels",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "n06",
+          "category": "analysis",
+          "question": "上个月GMV为什么比上上个月低？",
+          "query": "上个月GMV为什么比上上个月低？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "products",
+            "ad_campaigns",
+            "refunds",
+            "orders",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2173,
+          "passed": true
+        },
+        {
+          "id": "n07",
+          "category": "analysis",
+          "question": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "query": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "channels",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1693,
+          "passed": true
+        },
+        {
+          "id": "n08",
+          "category": "analysis",
+          "question": "哪个渠道最值得加大投入？",
+          "query": "哪个渠道最值得加大投入？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "channels",
+            "ad_campaigns",
+            "orders",
+            "ad_daily_stats",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1436,
+          "passed": true
+        },
+        {
+          "id": "n09",
+          "category": "analysis",
+          "question": "本月退款为什么变多了？",
+          "query": "本月退款为什么变多了？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "n10",
+          "category": "analysis",
+          "question": "最近物流有没有拖后腿？",
+          "query": "最近物流有没有拖后腿？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1316,
+          "passed": true
+        },
+        {
+          "id": "n11",
+          "category": "analysis",
+          "question": "各类目最近表现怎么样，哪些在下滑？",
+          "query": "各类目最近表现怎么样，哪些在下滑？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "refunds",
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "categories",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 2080,
+          "passed": true
+        },
+        {
+          "id": "n12",
+          "category": "analysis",
+          "question": "老客复购情况怎么样？",
+          "query": "老客复购情况怎么样？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "refunds",
+            "customers",
+            "orders",
+            "products",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1520,
+          "passed": true
+        },
+        {
+          "id": "n13",
+          "category": "analysis",
+          "question": "上个月客单价为什么下降了？",
+          "query": "上个月客单价为什么下降了？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "ad_campaigns",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "n14",
+          "category": "analysis",
+          "question": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "query": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "shipments",
+            "orders",
+            "order_items",
+            "products",
+            "ad_daily_stats",
+            "ad_campaigns"
+          ],
+          "missing": [],
+          "tokens": 1984,
+          "passed": true
+        },
+        {
+          "id": "n15",
+          "category": "analysis",
+          "question": "童装类目最近怎么样？",
+          "query": "童装类目最近怎么样？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "categories",
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1504,
+          "passed": true
+        },
+        {
+          "id": "t01",
+          "category": "multiturn",
+          "question": "按渠道拆一下",
+          "query": "上个月GMV是多少？；追问：按渠道拆一下",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "channels",
+            "ad_campaigns",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "t02",
+          "category": "multiturn",
+          "question": "换成按退款原因看",
+          "query": "上个月退款金额最高的10个商品是哪些？；追问：换成按退款原因看",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "t03",
+          "category": "multiturn",
+          "question": "再加上GMV",
+          "query": "上个月各渠道的订单数是多少？；追问：再加上GMV",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "t04",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "t05",
+          "category": "multiturn",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "ad_campaigns",
+            "refunds",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "t06",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "c01",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月按退款申请时间算，各渠道的退款金额是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "c02",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道的销售额是多少？这次要把运费也算进去；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "order_items",
+            "channels",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "c03",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各省份一共有多少订单？已取消的订单也要算上；追问：那上上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "shipments",
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2242,
+          "passed": true
+        },
+        {
+          "id": "c04",
+          "category": "consistency",
+          "question": "那上个月呢？",
+          "query": "最近30天各类目的销量是多少？只看直播带货渠道；追问：那上个月呢？",
+          "expected": [
+            "categories",
+            "channels",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "ad_campaigns",
+            "orders",
+            "shipments"
+          ],
+          "missing": [
+            "categories",
+            "channels"
+          ],
+          "tokens": 1804,
+          "passed": false
+        },
+        {
+          "id": "c05",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道因为质量问题退了多少钱？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "c06",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月客单价按订单总金额（含运费）算，各渠道是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        }
+      ]
+    },
+    "keyword": {
+      "total": 64,
+      "passed": 55,
+      "recall": 0.8594,
+      "table_recall": 0.9,
+      "tables_avg": 4.2,
+      "tokens_avg": 1328,
+      "cases": [
+        {
+          "id": "q01",
+          "category": "single_table",
+          "question": "最近30天有多少订单？",
+          "query": "最近30天有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "orders",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "q02",
+          "category": "single_table",
+          "question": "上个月有多少客户注册？",
+          "query": "上个月有多少客户注册？",
+          "expected": [
+            "customers"
+          ],
+          "found": [
+            "customers",
+            "orders",
+            "products",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1520,
+          "passed": true
+        },
+        {
+          "id": "q03",
+          "category": "single_table",
+          "question": "在售商品有多少个？",
+          "query": "在售商品有多少个？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "q04",
+          "category": "single_table",
+          "question": "最近7天退款金额合计是多少？",
+          "query": "最近7天退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_daily_stats",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "q05",
+          "category": "single_table",
+          "question": "上个月广告花费是多少？",
+          "query": "上个月广告花费是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1635,
+          "passed": true
+        },
+        {
+          "id": "q06",
+          "category": "single_table",
+          "question": "一共有几个渠道？",
+          "query": "一共有几个渠道？",
+          "expected": [
+            "channels"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 900,
+          "passed": true
+        },
+        {
+          "id": "q07",
+          "category": "single_table",
+          "question": "上个月有多少订单被取消？",
+          "query": "上个月有多少订单被取消？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "q08",
+          "category": "single_table",
+          "question": "上个月各物流承运商发了多少包裹？",
+          "query": "上个月各物流承运商发了多少包裹？",
+          "expected": [
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "products",
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "q09",
+          "category": "single_table",
+          "question": "最近30天订单数最多的5个省份是哪些？",
+          "query": "最近30天订单数最多的5个省份是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "customers",
+            "order_items",
+            "orders",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1426,
+          "passed": true
+        },
+        {
+          "id": "q10",
+          "category": "single_table",
+          "question": "有多少商品已经下架？",
+          "query": "有多少商品已经下架？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "m01",
+          "category": "multi_table",
+          "question": "上个月各商品类目的GMV是多少？",
+          "query": "上个月各商品类目的GMV是多少？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "categories",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1504,
+          "passed": true
+        },
+        {
+          "id": "m02",
+          "category": "multi_table",
+          "question": "最近30天各渠道的订单数是多少？",
+          "query": "最近30天各渠道的订单数是多少？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "m03",
+          "category": "multi_table",
+          "question": "上个月退款金额最高的10个商品是哪些？",
+          "query": "上个月退款金额最高的10个商品是哪些？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "m04",
+          "category": "multi_table",
+          "question": "最近30天各渠道的ROI是多少？",
+          "query": "最近30天各渠道的ROI是多少？",
+          "expected": [
+            "ad_campaigns",
+            "ad_daily_stats",
+            "channels"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "m05",
+          "category": "multi_table",
+          "question": "上个月各承运商的平均签收时长是多少小时？",
+          "query": "上个月各承运商的平均签收时长是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "m06",
+          "category": "multi_table",
+          "question": "上个月各省份的客单价是多少？",
+          "query": "上个月各省份的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "order_items",
+            "orders",
+            "products",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1777,
+          "passed": true
+        },
+        {
+          "id": "m07",
+          "category": "multi_table",
+          "question": "上个月销量最高的10个商品是哪些？",
+          "query": "上个月销量最高的10个商品是哪些？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "m08",
+          "category": "multi_table",
+          "question": "最近30天订单最多的5个城市是哪些？",
+          "query": "最近30天订单最多的5个城市是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "customers",
+            "order_items",
+            "orders",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1426,
+          "passed": true
+        },
+        {
+          "id": "m09",
+          "category": "multi_table",
+          "question": "上个月各渠道的退款金额是多少？",
+          "query": "上个月各渠道的退款金额是多少？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "ad_daily_stats",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "m10",
+          "category": "multi_table",
+          "question": "上个月各承运商的退款金额是多少？",
+          "query": "上个月各承运商的退款金额是多少？",
+          "expected": [
+            "refunds",
+            "shipments"
+          ],
+          "found": [
+            "refunds",
+            "shipments",
+            "ad_daily_stats",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "i01",
+          "category": "metric",
+          "question": "上个月的GMV是多少？",
+          "query": "上个月的GMV是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "i02",
+          "category": "metric",
+          "question": "上个月的退货率是多少？",
+          "query": "上个月的退货率是多少？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "products",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "i03",
+          "category": "metric",
+          "question": "最近30天的ROI是多少？",
+          "query": "最近30天的ROI是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1358,
+          "passed": true
+        },
+        {
+          "id": "i04",
+          "category": "metric",
+          "question": "上个月的客单价是多少？",
+          "query": "上个月的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "i05",
+          "category": "metric",
+          "question": "上个月的平均发货时效是多少小时？",
+          "query": "上个月的平均发货时效是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "i06",
+          "category": "metric",
+          "question": "上个月商品销量合计是多少件？",
+          "query": "上个月商品销量合计是多少件？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "i07",
+          "category": "metric",
+          "question": "上个月退款金额合计是多少？",
+          "query": "上个月退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_daily_stats",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "i08",
+          "category": "metric",
+          "question": "上个月有多少订单？",
+          "query": "上个月有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "orders",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "f01",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "f02",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近7天的订单数是多少？；追问：那上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "f03",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月退款金额最高的商品是哪个？；追问：那上上个月呢？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "f04",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近30天的GMV是多少？；追问：那上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "f05",
+          "category": "followup",
+          "question": "上上个月哪个商品卖的最差",
+          "query": "上上个月哪个商品卖的最差",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "a01",
+          "category": "attribution",
+          "question": "最近的退货率为什么涨了？",
+          "query": "最近的退货率为什么涨了？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "a02",
+          "category": "attribution",
+          "question": "上个月退货率为什么上升？",
+          "query": "上个月退货率为什么上升？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "products",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "a03",
+          "category": "attribution",
+          "question": "最近30天退货率变化的原因是什么？",
+          "query": "最近30天退货率变化的原因是什么？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "a04",
+          "category": "attribution",
+          "question": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "query": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders",
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1506,
+          "passed": false
+        },
+        {
+          "id": "n01",
+          "category": "analysis",
+          "question": "分析一下最近30天的销量，你能得出什么结论？",
+          "query": "分析一下最近30天的销量，你能得出什么结论？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 690,
+          "passed": true
+        },
+        {
+          "id": "n02",
+          "category": "analysis",
+          "question": "最近生意怎么样？",
+          "query": "最近生意怎么样？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 0,
+          "passed": false
+        },
+        {
+          "id": "n03",
+          "category": "analysis",
+          "question": "帮我看看退货情况，有什么问题吗？",
+          "query": "帮我看看退货情况，有什么问题吗？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "n04",
+          "category": "analysis",
+          "question": "下个月我应该重点推哪些商品？",
+          "query": "下个月我应该重点推哪些商品？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "n05",
+          "category": "analysis",
+          "question": "今天有什么需要我注意的？",
+          "query": "今天有什么需要我注意的？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 0,
+          "passed": false
+        },
+        {
+          "id": "n06",
+          "category": "analysis",
+          "question": "上个月GMV为什么比上上个月低？",
+          "query": "上个月GMV为什么比上上个月低？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "n07",
+          "category": "analysis",
+          "question": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "query": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_campaigns",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 576,
+          "passed": true
+        },
+        {
+          "id": "n08",
+          "category": "analysis",
+          "question": "哪个渠道最值得加大投入？",
+          "query": "哪个渠道最值得加大投入？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1199,
+          "passed": true
+        },
+        {
+          "id": "n09",
+          "category": "analysis",
+          "question": "本月退款为什么变多了？",
+          "query": "本月退款为什么变多了？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "n10",
+          "category": "analysis",
+          "question": "最近物流有没有拖后腿？",
+          "query": "最近物流有没有拖后腿？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "refunds",
+            "shipments",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1079,
+          "passed": true
+        },
+        {
+          "id": "n11",
+          "category": "analysis",
+          "question": "各类目最近表现怎么样，哪些在下滑？",
+          "query": "各类目最近表现怎么样，哪些在下滑？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "categories",
+            "products"
+          ],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 445,
+          "passed": false
+        },
+        {
+          "id": "n12",
+          "category": "analysis",
+          "question": "老客复购情况怎么样？",
+          "query": "老客复购情况怎么样？",
+          "expected": [
+            "orders"
+          ],
+          "found": [],
+          "missing": [
+            "orders"
+          ],
+          "tokens": 0,
+          "passed": false
+        },
+        {
+          "id": "n13",
+          "category": "analysis",
+          "question": "上个月客单价为什么下降了？",
+          "query": "上个月客单价为什么下降了？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "n14",
+          "category": "analysis",
+          "question": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "query": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "orders",
+            "shipments"
+          ],
+          "missing": [
+            "order_items"
+          ],
+          "tokens": 890,
+          "passed": false
+        },
+        {
+          "id": "n15",
+          "category": "analysis",
+          "question": "童装类目最近怎么样？",
+          "query": "童装类目最近怎么样？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "categories",
+            "products"
+          ],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 445,
+          "passed": false
+        },
+        {
+          "id": "t01",
+          "category": "multiturn",
+          "question": "按渠道拆一下",
+          "query": "上个月GMV是多少？；追问：按渠道拆一下",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "products",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1787,
+          "passed": true
+        },
+        {
+          "id": "t02",
+          "category": "multiturn",
+          "question": "换成按退款原因看",
+          "query": "上个月退款金额最高的10个商品是哪些？；追问：换成按退款原因看",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "products",
+            "order_items",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1639,
+          "passed": true
+        },
+        {
+          "id": "t03",
+          "category": "multiturn",
+          "question": "再加上GMV",
+          "query": "上个月各渠道的订单数是多少？；追问：再加上GMV",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "t04",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "t05",
+          "category": "multiturn",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "t06",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1615,
+          "passed": true
+        },
+        {
+          "id": "c01",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月按退款申请时间算，各渠道的退款金额是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "ad_daily_stats",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "c02",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道的销售额是多少？这次要把运费也算进去；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1506,
+          "passed": true
+        },
+        {
+          "id": "c03",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各省份一共有多少订单？已取消的订单也要算上；追问：那上上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "customers",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1795,
+          "passed": true
+        },
+        {
+          "id": "c04",
+          "category": "consistency",
+          "question": "那上个月呢？",
+          "query": "最近30天各类目的销量是多少？只看直播带货渠道；追问：那上个月呢？",
+          "expected": [
+            "categories",
+            "channels",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "channels",
+            "ad_campaigns",
+            "categories",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [
+            "products"
+          ],
+          "tokens": 1670,
+          "passed": false
+        },
+        {
+          "id": "c05",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道因为质量问题退了多少钱？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "products",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1787,
+          "passed": true
+        },
+        {
+          "id": "c06",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月客单价按订单总金额（含运费）算，各渠道是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_campaigns",
+            "ad_daily_stats",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [
+            "channels"
+          ],
+          "tokens": 1635,
+          "passed": false
+        }
+      ]
+    },
+    "keyword+connect": {
+      "total": 64,
+      "passed": 58,
+      "recall": 0.9062,
+      "table_recall": 0.9231,
+      "tables_avg": 4.8,
+      "tokens_avg": 1461,
+      "cases": [
+        {
+          "id": "q01",
+          "category": "single_table",
+          "question": "最近30天有多少订单？",
+          "query": "最近30天有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "ad_campaigns",
+            "orders",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2173,
+          "passed": true
+        },
+        {
+          "id": "q02",
+          "category": "single_table",
+          "question": "上个月有多少客户注册？",
+          "query": "上个月有多少客户注册？",
+          "expected": [
+            "customers"
+          ],
+          "found": [
+            "customers",
+            "orders",
+            "products",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1520,
+          "passed": true
+        },
+        {
+          "id": "q03",
+          "category": "single_table",
+          "question": "在售商品有多少个？",
+          "query": "在售商品有多少个？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "q04",
+          "category": "single_table",
+          "question": "最近7天退款金额合计是多少？",
+          "query": "最近7天退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "products",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "q05",
+          "category": "single_table",
+          "question": "上个月广告花费是多少？",
+          "query": "上个月广告花费是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "orders",
+            "channels",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "q06",
+          "category": "single_table",
+          "question": "一共有几个渠道？",
+          "query": "一共有几个渠道？",
+          "expected": [
+            "channels"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 900,
+          "passed": true
+        },
+        {
+          "id": "q07",
+          "category": "single_table",
+          "question": "上个月有多少订单被取消？",
+          "query": "上个月有多少订单被取消？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "q08",
+          "category": "single_table",
+          "question": "上个月各物流承运商发了多少包裹？",
+          "query": "上个月各物流承运商发了多少包裹？",
+          "expected": [
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "q09",
+          "category": "single_table",
+          "question": "最近30天订单数最多的5个省份是哪些？",
+          "query": "最近30天订单数最多的5个省份是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "customers",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1873,
+          "passed": true
+        },
+        {
+          "id": "q10",
+          "category": "single_table",
+          "question": "有多少商品已经下架？",
+          "query": "有多少商品已经下架？",
+          "expected": [
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "m01",
+          "category": "multi_table",
+          "question": "上个月各商品类目的GMV是多少？",
+          "query": "上个月各商品类目的GMV是多少？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "categories",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1504,
+          "passed": true
+        },
+        {
+          "id": "m02",
+          "category": "multi_table",
+          "question": "最近30天各渠道的订单数是多少？",
+          "query": "最近30天各渠道的订单数是多少？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "m03",
+          "category": "multi_table",
+          "question": "上个月退款金额最高的10个商品是哪些？",
+          "query": "上个月退款金额最高的10个商品是哪些？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "m04",
+          "category": "multi_table",
+          "question": "最近30天各渠道的ROI是多少？",
+          "query": "最近30天各渠道的ROI是多少？",
+          "expected": [
+            "ad_campaigns",
+            "ad_daily_stats",
+            "channels"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "m05",
+          "category": "multi_table",
+          "question": "上个月各承运商的平均签收时长是多少小时？",
+          "query": "上个月各承运商的平均签收时长是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "m06",
+          "category": "multi_table",
+          "question": "上个月各省份的客单价是多少？",
+          "query": "上个月各省份的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "order_items",
+            "orders",
+            "products",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1777,
+          "passed": true
+        },
+        {
+          "id": "m07",
+          "category": "multi_table",
+          "question": "上个月销量最高的10个商品是哪些？",
+          "query": "上个月销量最高的10个商品是哪些？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "m08",
+          "category": "multi_table",
+          "question": "最近30天订单最多的5个城市是哪些？",
+          "query": "最近30天订单最多的5个城市是哪些？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "customers",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 1873,
+          "passed": true
+        },
+        {
+          "id": "m09",
+          "category": "multi_table",
+          "question": "上个月各渠道的退款金额是多少？",
+          "query": "上个月各渠道的退款金额是多少？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "products",
+            "ad_daily_stats",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 2086,
+          "passed": true
+        },
+        {
+          "id": "m10",
+          "category": "multi_table",
+          "question": "上个月各承运商的退款金额是多少？",
+          "query": "上个月各承运商的退款金额是多少？",
+          "expected": [
+            "refunds",
+            "shipments"
+          ],
+          "found": [
+            "refunds",
+            "shipments",
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "i01",
+          "category": "metric",
+          "question": "上个月的GMV是多少？",
+          "query": "上个月的GMV是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "i02",
+          "category": "metric",
+          "question": "上个月的退货率是多少？",
+          "query": "上个月的退货率是多少？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "products",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "i03",
+          "category": "metric",
+          "question": "最近30天的ROI是多少？",
+          "query": "最近30天的ROI是多少？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        },
+        {
+          "id": "i04",
+          "category": "metric",
+          "question": "上个月的客单价是多少？",
+          "query": "上个月的客单价是多少？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "i05",
+          "category": "metric",
+          "question": "上个月的平均发货时效是多少小时？",
+          "query": "上个月的平均发货时效是多少小时？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "shipments",
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1597,
+          "passed": true
+        },
+        {
+          "id": "i06",
+          "category": "metric",
+          "question": "上个月商品销量合计是多少件？",
+          "query": "上个月商品销量合计是多少件？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders",
+            "refunds",
+            "ad_daily_stats",
+            "ad_campaigns"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "i07",
+          "category": "metric",
+          "question": "上个月退款金额合计是多少？",
+          "query": "上个月退款金额合计是多少？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "products",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "i08",
+          "category": "metric",
+          "question": "上个月有多少订单？",
+          "query": "上个月有多少订单？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "order_items",
+            "products",
+            "ad_campaigns",
+            "orders",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2173,
+          "passed": true
+        },
+        {
+          "id": "f01",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "f02",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近7天的订单数是多少？；追问：那上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "f03",
+          "category": "followup",
+          "question": "那上上个月呢？",
+          "query": "上个月退款金额最高的商品是哪个？；追问：那上上个月呢？",
+          "expected": [
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "products",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "f04",
+          "category": "followup",
+          "question": "那上个月呢？",
+          "query": "最近30天的GMV是多少？；追问：那上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "f05",
+          "category": "followup",
+          "question": "上上个月哪个商品卖的最差",
+          "query": "上上个月哪个商品卖的最差",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "products",
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "a01",
+          "category": "attribution",
+          "question": "最近的退货率为什么涨了？",
+          "query": "最近的退货率为什么涨了？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "a02",
+          "category": "attribution",
+          "question": "上个月退货率为什么上升？",
+          "query": "上个月退货率为什么上升？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "products",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "a03",
+          "category": "attribution",
+          "question": "最近30天退货率变化的原因是什么？",
+          "query": "最近30天退货率变化的原因是什么？",
+          "expected": [
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "a04",
+          "category": "attribution",
+          "question": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "query": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders",
+            "products",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "products",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1787,
+          "passed": true
+        },
+        {
+          "id": "n01",
+          "category": "analysis",
+          "question": "分析一下最近30天的销量，你能得出什么结论？",
+          "query": "分析一下最近30天的销量，你能得出什么结论？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 690,
+          "passed": true
+        },
+        {
+          "id": "n02",
+          "category": "analysis",
+          "question": "最近生意怎么样？",
+          "query": "最近生意怎么样？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 0,
+          "passed": false
+        },
+        {
+          "id": "n03",
+          "category": "analysis",
+          "question": "帮我看看退货情况，有什么问题吗？",
+          "query": "帮我看看退货情况，有什么问题吗？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "n04",
+          "category": "analysis",
+          "question": "下个月我应该重点推哪些商品？",
+          "query": "下个月我应该重点推哪些商品？",
+          "expected": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "n05",
+          "category": "analysis",
+          "question": "今天有什么需要我注意的？",
+          "query": "今天有什么需要我注意的？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 0,
+          "passed": false
+        },
+        {
+          "id": "n06",
+          "category": "analysis",
+          "question": "上个月GMV为什么比上上个月低？",
+          "query": "上个月GMV为什么比上上个月低？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "n07",
+          "category": "analysis",
+          "question": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "query": "最近30天广告投放效果怎么样，钱花得值吗？",
+          "expected": [
+            "ad_daily_stats"
+          ],
+          "found": [
+            "ad_campaigns",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 576,
+          "passed": true
+        },
+        {
+          "id": "n08",
+          "category": "analysis",
+          "question": "哪个渠道最值得加大投入？",
+          "query": "哪个渠道最值得加大投入？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "ad_daily_stats"
+          ],
+          "missing": [],
+          "tokens": 1199,
+          "passed": true
+        },
+        {
+          "id": "n09",
+          "category": "analysis",
+          "question": "本月退款为什么变多了？",
+          "query": "本月退款为什么变多了？",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1059,
+          "passed": true
+        },
+        {
+          "id": "n10",
+          "category": "analysis",
+          "question": "最近物流有没有拖后腿？",
+          "query": "最近物流有没有拖后腿？",
+          "expected": [
+            "orders",
+            "shipments"
+          ],
+          "found": [
+            "refunds",
+            "shipments",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 1079,
+          "passed": true
+        },
+        {
+          "id": "n11",
+          "category": "analysis",
+          "question": "各类目最近表现怎么样，哪些在下滑？",
+          "query": "各类目最近表现怎么样，哪些在下滑？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "categories",
+            "products"
+          ],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 445,
+          "passed": false
+        },
+        {
+          "id": "n12",
+          "category": "analysis",
+          "question": "老客复购情况怎么样？",
+          "query": "老客复购情况怎么样？",
+          "expected": [
+            "orders"
+          ],
+          "found": [],
+          "missing": [
+            "orders"
+          ],
+          "tokens": 0,
+          "passed": false
+        },
+        {
+          "id": "n13",
+          "category": "analysis",
+          "question": "上个月客单价为什么下降了？",
+          "query": "上个月客单价为什么下降了？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "order_items",
+            "products",
+            "orders"
+          ],
+          "missing": [],
+          "tokens": 971,
+          "passed": true
+        },
+        {
+          "id": "n14",
+          "category": "analysis",
+          "question": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "query": "最近30天哪些地区卖得好，哪些地区需要加强？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "customers",
+            "orders",
+            "shipments"
+          ],
+          "missing": [
+            "order_items"
+          ],
+          "tokens": 890,
+          "passed": false
+        },
+        {
+          "id": "n15",
+          "category": "analysis",
+          "question": "童装类目最近怎么样？",
+          "query": "童装类目最近怎么样？",
+          "expected": [
+            "categories",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "categories",
+            "products"
+          ],
+          "missing": [
+            "order_items",
+            "orders"
+          ],
+          "tokens": 445,
+          "passed": false
+        },
+        {
+          "id": "t01",
+          "category": "multiturn",
+          "question": "按渠道拆一下",
+          "query": "上个月GMV是多少？；追问：按渠道拆一下",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "products",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1787,
+          "passed": true
+        },
+        {
+          "id": "t02",
+          "category": "multiturn",
+          "question": "换成按退款原因看",
+          "query": "上个月退款金额最高的10个商品是哪些？；追问：换成按退款原因看",
+          "expected": [
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "orders",
+            "products",
+            "order_items",
+            "ad_daily_stats",
+            "ad_campaigns"
+          ],
+          "missing": [],
+          "tokens": 1916,
+          "passed": true
+        },
+        {
+          "id": "t03",
+          "category": "multiturn",
+          "question": "再加上GMV",
+          "query": "上个月各渠道的订单数是多少？；追问：再加上GMV",
+          "expected": [
+            "channels",
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "refunds",
+            "shipments"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "t04",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "t05",
+          "category": "multiturn",
+          "question": "那上上个月呢？",
+          "query": "上个月GMV是多少？；追问：那上上个月呢？",
+          "expected": [
+            "order_items",
+            "orders"
+          ],
+          "found": [
+            "products",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1340,
+          "passed": true
+        },
+        {
+          "id": "t06",
+          "category": "multiturn",
+          "question": "上个月的订单数是多少？",
+          "query": "上个月的订单数是多少？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "ad_daily_stats",
+            "orders",
+            "channels",
+            "ad_campaigns",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2062,
+          "passed": true
+        },
+        {
+          "id": "c01",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月按退款申请时间算，各渠道的退款金额是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "products",
+            "ad_daily_stats",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 2086,
+          "passed": true
+        },
+        {
+          "id": "c02",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道的销售额是多少？这次要把运费也算进去；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "ad_campaigns",
+            "channels",
+            "orders",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1506,
+          "passed": true
+        },
+        {
+          "id": "c03",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各省份一共有多少订单？已取消的订单也要算上；追问：那上上个月呢？",
+          "expected": [
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_daily_stats",
+            "ad_campaigns",
+            "channels",
+            "customers",
+            "order_items",
+            "shipments",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 2242,
+          "passed": true
+        },
+        {
+          "id": "c04",
+          "category": "consistency",
+          "question": "那上个月呢？",
+          "query": "最近30天各类目的销量是多少？只看直播带货渠道；追问：那上个月呢？",
+          "expected": [
+            "categories",
+            "channels",
+            "order_items",
+            "orders",
+            "products"
+          ],
+          "found": [
+            "channels",
+            "ad_campaigns",
+            "categories",
+            "products",
+            "order_items",
+            "orders",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1951,
+          "passed": true
+        },
+        {
+          "id": "c05",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月各渠道因为质量问题退了多少钱？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders",
+            "refunds"
+          ],
+          "found": [
+            "refunds",
+            "ad_campaigns",
+            "products",
+            "channels",
+            "orders",
+            "order_items"
+          ],
+          "missing": [],
+          "tokens": 1787,
+          "passed": true
+        },
+        {
+          "id": "c06",
+          "category": "consistency",
+          "question": "那上上个月呢？",
+          "query": "上个月客单价按订单总金额（含运费）算，各渠道是多少？；追问：那上上个月呢？",
+          "expected": [
+            "channels",
+            "orders"
+          ],
+          "found": [
+            "orders",
+            "ad_campaigns",
+            "channels",
+            "ad_daily_stats",
+            "order_items",
+            "refunds"
+          ],
+          "missing": [],
+          "tokens": 1805,
+          "passed": true
+        }
+      ]
+    }
+  },
+  "vector_degraded": []
+}

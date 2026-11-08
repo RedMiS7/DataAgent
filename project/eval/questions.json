@@ -245,25 +245,47 @@
     "id": "a01",
     "category": "attribution",
     "question": "最近的退货率为什么涨了？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_tables": [
+      "refunds",
+      "orders",
+      "order_items"
+    ]
   },
   {
     "id": "a02",
     "category": "attribution",
     "question": "上个月退货率为什么上升？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_tables": [
+      "refunds",
+      "orders",
+      "order_items"
+    ]
   },
   {
     "id": "a03",
     "category": "attribution",
     "question": "最近30天退货率变化的原因是什么？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_tables": [
+      "refunds",
+      "orders",
+      "order_items"
+    ]
   },
   {
     "id": "a04",
     "category": "attribution",
     "question": "退货率涨了，帮我看看是哪些商品和渠道造成的？",
-    "expected_sql": ""
+    "expected_sql": "",
+    "expected_tables": [
+      "refunds",
+      "orders",
+      "order_items",
+      "products",
+      "channels"
+    ]
   },
   {
     "id": "n01",
@@ -271,6 +293,10 @@
     "mode": "analysis",
     "question": "分析一下最近30天的销量，你能得出什么结论？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items"
+    ],
     "expected_dimensions": [
       "整体",
       "类目",
@@ -283,6 +309,10 @@
     "mode": "analysis",
     "question": "最近生意怎么样？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items"
+    ],
     "expected_dimensions": [
       "整体",
       "渠道"
@@ -294,6 +324,9 @@
     "mode": "analysis",
     "question": "帮我看看退货情况，有什么问题吗？",
     "expected_sql": "",
+    "expected_tables": [
+      "refunds"
+    ],
     "expected_dimensions": [
       "退款",
       "商品"
@@ -305,6 +338,11 @@
     "mode": "analysis",
     "question": "下个月我应该重点推哪些商品？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items",
+      "products"
+    ],
     "expected_dimensions": [
       "商品"
     ]
@@ -315,6 +353,10 @@
     "mode": "analysis",
     "question": "今天有什么需要我注意的？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items"
+    ],
     "expected_dimensions": [
       "整体"
     ]
@@ -325,6 +367,10 @@
     "mode": "analysis",
     "question": "上个月GMV为什么比上上个月低？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items"
+    ],
     "expected_dimensions": [
       "整体",
       "类目",
@@ -337,6 +383,9 @@
     "mode": "analysis",
     "question": "最近30天广告投放效果怎么样，钱花得值吗？",
     "expected_sql": "",
+    "expected_tables": [
+      "ad_daily_stats"
+    ],
     "expected_dimensions": [
       "广告"
     ]
@@ -347,6 +396,10 @@
     "mode": "analysis",
     "question": "哪个渠道最值得加大投入？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "channels"
+    ],
     "expected_dimensions": [
       "渠道"
     ]
@@ -357,6 +410,9 @@
     "mode": "analysis",
     "question": "本月退款为什么变多了？",
     "expected_sql": "",
+    "expected_tables": [
+      "refunds"
+    ],
     "expected_dimensions": [
       "退款",
       "商品"
@@ -368,6 +424,10 @@
     "mode": "analysis",
     "question": "最近物流有没有拖后腿？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "shipments"
+    ],
     "expected_dimensions": [
       "物流"
     ]
@@ -378,6 +438,12 @@
     "mode": "analysis",
     "question": "各类目最近表现怎么样，哪些在下滑？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items",
+      "products",
+      "categories"
+    ],
     "expected_dimensions": [
       "类目"
     ]
@@ -388,6 +454,9 @@
     "mode": "analysis",
     "question": "老客复购情况怎么样？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders"
+    ],
     "expected_dimensions": [
       "客户"
     ]
@@ -398,6 +467,10 @@
     "mode": "analysis",
     "question": "上个月客单价为什么下降了？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items"
+    ],
     "expected_dimensions": [
       "整体",
       "渠道"
@@ -409,6 +482,10 @@
     "mode": "analysis",
     "question": "最近30天哪些地区卖得好，哪些地区需要加强？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items"
+    ],
     "expected_dimensions": [
       "地区"
     ]
@@ -419,6 +496,12 @@
     "mode": "analysis",
     "question": "童装类目最近怎么样？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items",
+      "products",
+      "categories"
+    ],
     "expected_dimensions": [
       "类目",
       "商品"
@@ -539,6 +622,11 @@
     ],
     "question": "那上上个月呢？",
     "expected_sql": "",
+    "expected_tables": [
+      "refunds",
+      "orders",
+      "channels"
+    ],
     "expect_from_previous": {
       "2026-09-01": "2026-08-01",
       "2026-10-01": "2026-09-01"
@@ -554,6 +642,10 @@
     ],
     "question": "那上上个月呢？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "channels"
+    ],
     "expect_from_previous": {
       "2026-09-01": "2026-08-01",
       "2026-10-01": "2026-09-01"
@@ -569,6 +661,9 @@
     ],
     "question": "那上上个月呢？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders"
+    ],
     "expect_from_previous": {
       "2026-09-01": "2026-08-01",
       "2026-10-01": "2026-09-01"
@@ -584,6 +679,13 @@
     ],
     "question": "那上个月呢？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "order_items",
+      "products",
+      "categories",
+      "channels"
+    ],
     "expect_from_previous": {
       "2026-10-02": "2026-09-01",
       "2026-11-01": "2026-10-01"
@@ -599,6 +701,11 @@
     ],
     "question": "那上上个月呢？",
     "expected_sql": "",
+    "expected_tables": [
+      "refunds",
+      "orders",
+      "channels"
+    ],
     "expect_from_previous": {
       "2026-09-01": "2026-08-01",
       "2026-10-01": "2026-09-01"
@@ -614,6 +721,10 @@
     ],
     "question": "那上上个月呢？",
     "expected_sql": "",
+    "expected_tables": [
+      "orders",
+      "channels"
+    ],
     "expect_from_previous": {
       "2026-09-01": "2026-08-01",
       "2026-10-01": "2026-09-01"

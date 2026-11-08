@@ -204,15 +204,24 @@ def schema_context(settings: Settings, conn: Connection, bundle: RetrievalBundle
         return None
     prefix = f"{settings.mysql_business_db}."
     items = repository.fetch_schema_items(conn, enabled_only=False)
-    tables = [hit.item.table_name for hit in bundle.schema_items]
-    for hit in bundle.metrics:
-        tables.extend(part for part in hit.metric.related_tables.split(",") if part.strip())
-    for case in bundle.cases:
-        tables.extend(table_names(case.sql_text, settings.mysql_business_db))
-    tables.extend(wanted)
+    tables = retrieved_tables(bundle, settings.mysql_business_db) + wanted
     summaries = {bare_name(table.table_name, prefix): table.summary for table in bundle.tables}
     return build_schema_context(columns, items, summaries, tables,
                                 settings.schema_token_budget, prefix)
+
+
+def retrieved_tables(bundle: RetrievalBundle, schema: str) -> list[str]:
+    """The tables retrieval points to, without the schema prefix, most direct first:
+    those of the matched columns, then the matched metrics' tables, then the tables the
+    matched cases' SQL reads."""
+    prefix = f"{schema}."
+    tables = [bare_name(hit.item.table_name, prefix) for hit in bundle.schema_items]
+    for hit in bundle.metrics:
+        tables.extend(bare_name(part, prefix) for part in hit.metric.related_tables.split(",")
+                      if part.strip())
+    for case in bundle.cases:
+        tables.extend(table_names(case.sql_text, schema))
+    return list(dict.fromkeys(tables))
 
 
 def table_names(sql: str, schema: str) -> list[str]:

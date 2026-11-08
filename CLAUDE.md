@@ -81,6 +81,7 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 - 路由评测（只测自动模式的判断，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode routing --output <路径>`
 - 分析评测（只跑分析题，统计维度覆盖和耗时，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode analysis --output <路径>`；加 `--no-plan` 用原来的单 Agent 流程对比
 - 只跑部分类别的问答题：`--mode questions --category consistency --category multiturn`；加 `--no-history-sql` 时多轮题的历史不带上一轮的 SQL，用来对比
+- 检索召回率评测（只测检索能不能找全一道题需要的表，不调用大模型，需要向量库）：`cd project && docker compose run --rm --no-deps -T -v "$PWD":/work -w /work app python eval/run_eval.py --mode retrieval --output <路径>`
 - 用网页里保存的模型 key 跑评测（key 在 Docker 卷里，本机 `.env` 没有 key 时用这个）：先 `cd project && docker compose up -d --build`，再 `docker compose run --rm --no-deps -T -v "$PWD":/work -w /work app python eval/run_eval.py --mode all --output <路径>`
 
 ## 编码规范

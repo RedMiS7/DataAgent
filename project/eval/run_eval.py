@@ -16,6 +16,7 @@ from app.embedding import build_embedder  # noqa: E402
 from app.semantic.retriever import SemanticRetriever  # noqa: E402
 from app.vector import build_vector_store  # noqa: E402
 
+from eval.retrieval_eval import evaluate_retrieval, print_retrieval  # noqa: E402
 from eval.runner import (  # noqa: E402
     EvalReport,
     evaluate_analysis,
@@ -67,7 +68,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run DataAgent evaluation")
     parser.add_argument("--mode",
                         choices=["questions", "analysis", "routing", "security", "attribution",
-                                 "all"],
+                                 "retrieval", "all"],
                         default="all")
     parser.add_argument("--no-plan", action="store_true",
                         help="analysis 模式下跳过规划，用单个 Agent 分析，用于和计划流程对比")
@@ -94,6 +95,22 @@ def main() -> int:
     questions = load_questions()
     if args.category:
         questions = [item for item in questions if item["category"] in args.category]
+    if args.mode == "retrieval":
+        # Not part of "all": it calls no model and is run on its own while tuning retrieval.
+        result = evaluate_retrieval(settings, retriever, questions[:args.limit]
+                                    if args.limit else questions)
+        print_retrieval(result)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps({
+            "mode": "retrieval",
+            "categories": args.category or [],
+            "as_of_date": settings.as_of_date.isoformat(),
+            "embedding_model": getattr(embedder, "model_name", ""),
+            **result,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n结果已写入 {args.output}")
+        return 0
+
     reports: list[EvalReport] = []
     if args.mode in ("questions", "all"):
         report = evaluate_questions(settings, pipeline, questions, args.limit,

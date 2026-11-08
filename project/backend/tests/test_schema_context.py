@@ -154,8 +154,8 @@ def test_schema_context_puts_retrieval_first_then_the_history(
     )
     settings = Settings(_env_file=None, schema_token_budget=1234)
     assert tools.schema_context(settings, None, bundle, ["ad_daily_stats"]) == "schema"  # type: ignore[arg-type]
-    assert captured["wanted"] == ["safe.shipments", "safe.orders", "safe.order_items",
-                                  "refunds", "ad_daily_stats"]
+    assert captured["wanted"] == ["shipments", "orders", "order_items", "refunds",
+                                  "ad_daily_stats"]
     assert captured["summaries"] == {"orders": "订单"}
     assert captured["budget"] == 1234 and captured["prefix"] == "safe."
 

@@ -198,8 +198,9 @@ def _prompt(schema: Any) -> str:
 def test_the_prompt_lists_whole_tables_before_what_changes() -> None:
     schema = _build([], 32000)
     prompt = _prompt(schema)
-    assert prompt.startswith(SYSTEM_PROMPT + "\n" + schema.text)
-    assert prompt.index(HEADER) < prompt.index("本次统计截止日") < prompt.index("【指标口径】")
+    assert prompt.startswith(SYSTEM_PROMPT + "\n数据库：MySQL，SQL 按 MySQL 的语法写。业务库名：safe。\n"
+                             + "\n" + schema.text)
+    assert prompt.index(HEADER) < prompt.index("本次统计截止日") < prompt.index("【指标口径】\n")
     # The retrieved columns and summaries would only repeat the tables.
     assert "【字段】（" not in prompt and "【表摘要】" not in prompt
 
@@ -227,3 +228,30 @@ def test_the_pipeline_falls_back_when_the_schema_cannot_be_read(
     settings = Settings(_env_file=None)
     assert AskPipeline(settings, None)._schema(None, RetrievalBundle(), [], "t") is None  # type: ignore[arg-type]
     assert "读取表结构失败" in caplog.text
+
+
+# Nothing about this database is written into the rules
+
+BUSINESS_TERMS = ("orders", "refunds", "categories", "paid_at", "completed_at", "cancelled",
+                  "shop", "safe")
+
+
+def test_the_rules_name_no_table_column_or_schema() -> None:
+    from app.agent.pipeline import ANALYSIS_PROMPT
+    for prompt in (SYSTEM_PROMPT, ANALYSIS_PROMPT):
+        assert [term for term in BUSINESS_TERMS if term in prompt] == []
+    assert "按【指标口径】的公式和【表结构】的字段说明执行" in SYSTEM_PROMPT
+    # A definition the user names is no attempt to get around the rules.
+    assert "用户明确指定了口径时" in SYSTEM_PROMPT and "这不算绕过规则" in SYSTEM_PROMPT
+
+
+def test_the_planner_reads_the_tables_from_the_knowledge() -> None:
+    from app.agent import planner
+    assert [term for term in BUSINESS_TERMS if term in planner.PLAN_PROMPT] == []
+    assert "【表摘要】" in planner.PLAN_PROMPT
+
+
+def test_the_database_note_follows_the_settings() -> None:
+    settings = Settings(_env_file=None, mysql_business_db="public", sql_dialect="postgres")
+    note = AskPipeline(settings, None)._database_note()  # type: ignore[arg-type]
+    assert note == "数据库：PostgreSQL，SQL 按 PostgreSQL 的语法写。业务库名：public。\n"

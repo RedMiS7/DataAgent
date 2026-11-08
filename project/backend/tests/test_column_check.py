@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -13,22 +12,16 @@ from app.agent import tools
 from app.config import Settings
 from app.nl2sql.executor import ExecutionResult, SQLExecutionError
 from app.safety import validator
-from app.safety.validator import SQLValidationError, unknown_column_hint, validate_and_limit
+from app.safety.validator import (
+    SQLPolicy,
+    SQLValidationError,
+    unknown_column_hint,
+    validate_and_limit,
+)
+from business_schema import COLUMNS, POLICY
 from sqlglot.errors import OptimizeError
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-SCHEMA_FILE = PROJECT_DIR / "data" / "initdb" / "01_business_schema.sql"
-
-
-def _view_columns() -> dict[str, list[str]]:
-    """The columns of the safe views, as the read-only account sees them."""
-    text = SCHEMA_FILE.read_text(encoding="utf-8")
-    views = re.findall(r"VIEW safe\.(\w+) AS\s*SELECT (.*?) FROM", text, re.S)
-    return {table: [part.strip() for part in body.replace("\n", " ").split(",")]
-            for table, body in views}
-
-
-COLUMNS = _view_columns()
 
 
 def _sql_that_ran() -> list[str]:
@@ -50,7 +43,7 @@ def test_no_sql_that_ran_is_blocked() -> None:
     blocked = []
     for sql in queries:
         try:
-            validate_and_limit(sql, 500, COLUMNS)
+            validate_and_limit(sql, 500, POLICY)
         except SQLValidationError as exc:
             blocked.append((sql, str(exc)))
     assert blocked == []
@@ -74,12 +67,12 @@ def test_no_sql_that_ran_is_blocked() -> None:
     "SELECT CAST(o.paid_at AS DATE) AS d, COUNT(*) FROM safe.orders o GROUP BY CAST(o.paid_at AS DATE)",
 ])
 def test_valid_sql_passes(sql: str) -> None:
-    validate_and_limit(sql, 500, COLUMNS)
+    validate_and_limit(sql, 500, POLICY)
 
 
 def _rejection(sql: str) -> str:
     with pytest.raises(SQLValidationError) as caught:
-        validate_and_limit(sql, 500, COLUMNS)
+        validate_and_limit(sql, 500, POLICY)
     return str(caught.value)
 
 
@@ -108,8 +101,8 @@ def test_an_unknown_alias_names_the_aliases_in_use() -> None:
 
 
 def test_without_columns_the_check_is_skipped() -> None:
-    validate_and_limit("SELECT o.amount FROM safe.orders o", 500)
-    validate_and_limit("SELECT o.amount FROM safe.orders o", 500, {})
+    validate_and_limit("SELECT o.amount FROM safe.orders o", 500,
+                       SQLPolicy(schema="safe", dialect="mysql"))
 
 
 @pytest.mark.parametrize("error", [OptimizeError("Unsupported thing"), RuntimeError("bug")])
@@ -119,11 +112,11 @@ def test_what_the_check_cannot_judge_is_let_through(monkeypatch: pytest.MonkeyPa
         raise error
 
     monkeypatch.setattr(validator, "qualify", fail)
-    validate_and_limit("SELECT o.amount FROM safe.orders o", 500, COLUMNS)
+    validate_and_limit("SELECT o.amount FROM safe.orders o", 500, POLICY)
 
 
 def test_mysql_unknown_column_gets_the_same_hint() -> None:
-    hint = unknown_column_hint("SELECT o.cost FROM safe.orders AS o", "o.cost", COLUMNS)
+    hint = unknown_column_hint("SELECT o.cost FROM safe.orders AS o", "o.cost", COLUMNS, "mysql")
     assert hint.startswith("字段不存在：orders.cost。")
     assert "orders 的字段：" in hint
 

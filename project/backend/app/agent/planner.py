@@ -44,14 +44,10 @@ STATUS_LABELS: dict[str, str] = {
     "pending": "未执行", "running": "执行中", "done": "已完成", "failed": "失败",
 }
 
-TABLES = ("categories（类目）、channels（渠道）、products（商品）、customers（客户）、orders（订单）、"
-          "order_items（订单明细）、refunds（退款）、shipments（物流）、ad_campaigns（广告计划）、"
-          "ad_daily_stats（广告日数据）")
-
 PLAN_PROMPT = f"""你是 DataAgent 的分析规划员，负责把用户的分析问题拆成几个查数步骤。
 你不写 SQL，也不回答问题。
 
-可以查的数据：{TABLES}。
+可以查的数据见下方参考资料里的【表摘要】。
 
 拆解规则：
 1. 拆成 2 到 {MAX_PLAN_STEPS} 步。第一步一般是本期和对比期的整体指标对比。

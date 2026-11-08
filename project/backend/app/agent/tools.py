@@ -17,7 +17,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..config import Settings
 from ..db.engine import app_connection, business_connection
 from ..nl2sql.executor import ExecutionResult, SQLExecutionError, execute_sql
-from ..safety.validator import Columns, SQLValidationError, unknown_column_hint, validate_and_limit
+from ..safety.validator import (
+    Columns,
+    SQLPolicy,
+    SQLValidationError,
+    unknown_column_hint,
+    validate_and_limit,
+)
 from ..semantic import repository
 from ..semantic.models import RetrievalBundle
 from ..semantic.retriever import SemanticRetriever
@@ -176,6 +182,15 @@ def known_columns(settings: Settings) -> Columns | None:
     return {table: [name for name, _ in items] for table, items in columns.items()}
 
 
+def sql_policy(settings: Settings) -> SQLPolicy:
+    """What SQL may read: the tables the read-only account sees in the business database."""
+    columns = known_columns(settings)
+    if columns is None:
+        logger.warning("读不到业务库的表和字段，这次只检查库名，不检查表名和字段")
+    return SQLPolicy(schema=settings.mysql_business_db, dialect=settings.sql_dialect,
+                     columns=columns)
+
+
 def schema_context(settings: Settings, conn: Connection, bundle: RetrievalBundle,
                    wanted: list[str]) -> SchemaContext | None:
     """The tables for the prompt, each with all of its columns; None when the columns
@@ -212,7 +227,7 @@ def _column_hint(settings: Settings, sql: str, message: str) -> str:
     columns = known_columns(settings)
     if match is None or not columns:
         return ""
-    return unknown_column_hint(sql, match.group(1), columns)
+    return unknown_column_hint(sql, match.group(1), columns, settings.sql_dialect)
 
 
 def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
@@ -225,7 +240,7 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         """执行一条只读 SQL 并返回结果预览。
 
         Args:
-            sql: 单条 MySQL SELECT 语句，只能查询 safe 库。
+            sql: 单条只读 SELECT 语句，只能查询业务库里的表。
             purpose: 这条查询要看什么，一句中文，例如“本期与上期整体对比”。
         """
         nonlocal step_reserved, failures_in_row
@@ -251,9 +266,9 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         context.attempts += 1
         if not analysis:
             context.emit("status", {"step": "validating", "message": "正在校验 SQL 安全性"})
-        columns = await asyncio.to_thread(known_columns, context.settings)
+        policy = await asyncio.to_thread(sql_policy, context.settings)
         try:
-            safe_sql = validate_and_limit(sql, context.settings.sql_max_rows, columns)
+            safe_sql = validate_and_limit(sql, context.settings.sql_max_rows, policy)
         except SQLValidationError as exc:
             message = str(exc)
             context.errors.append(message)

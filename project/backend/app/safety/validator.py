@@ -30,12 +30,21 @@ class SafeSQL:
     original_limit: int | None = None
 
 
-ALLOWED_TABLES = {
-    "categories", "channels", "products", "customers", "orders", "order_items",
-    "refunds", "shipments", "ad_campaigns", "ad_daily_stats",
-}
+@dataclass(frozen=True, slots=True)
+class SQLPolicy:
+    """What a query may read, from the settings and the database itself.
 
-ALLOWED_SCHEMA = "safe"
+    ``columns`` are the tables of ``schema`` that the read-only account can see, with
+    their columns: only these tables are allowed, and every column must exist. None
+    when they could not be read; then only the schema is checked, and the account's
+    grants stay the last guard.
+    """
+
+    schema: str
+    dialect: str
+    columns: Columns | None = None
+
+
 BLOCKED_SCHEMAS = {"mysql", "information_schema", "performance_schema", "sys"}
 
 BLOCKED_FUNCTIONS = {
@@ -64,7 +73,9 @@ def _check_statement_type(statement: exp.Expression) -> None:
         _reject(f"不支持该语句类型：{type(statement).__name__}")
 
 
-def _check_tables(statement: exp.Expression) -> None:
+def _check_tables(statement: exp.Expression, policy: SQLPolicy) -> None:
+    allowed = ({table.lower() for table in policy.columns}
+               if policy.columns is not None else None)
     cte_names = {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE)}
     for table in statement.find_all(exp.Table):
         schema = (table.db or "").lower()
@@ -73,9 +84,9 @@ def _check_tables(statement: exp.Expression) -> None:
             continue
         if schema in BLOCKED_SCHEMAS:
             _reject(f"禁止访问系统库：{schema}")
-        if schema and schema != ALLOWED_SCHEMA:
+        if schema and schema != policy.schema.lower():
             _reject(f"禁止访问未授权的库：{schema}")
-        if name not in ALLOWED_TABLES:
+        if allowed is not None and name not in allowed:
             _reject(f"禁止访问未授权的表：{name}")
 
 
@@ -124,11 +135,11 @@ def _suggestions(name: str, tables: list[str], columns: Columns) -> list[str]:
     return found[:MAX_SUGGESTIONS]
 
 
-def unknown_column_hint(sql: str, column: str, columns: Columns) -> str:
+def unknown_column_hint(sql: str, column: str, columns: Columns, dialect: str) -> str:
     """What to write instead of ``column`` ("o.cost" or "cost"): close matches and the
     real columns of the tables it may belong to."""
     try:
-        statement = _lowered(sqlglot.parse_one(sql, read="mysql"))
+        statement = _lowered(sqlglot.parse_one(sql, read=dialect))
     except sqlglot.errors.ParseError:
         return ""
     aliases = _alias_tables(statement)
@@ -156,17 +167,18 @@ def unknown_column_hint(sql: str, column: str, columns: Columns) -> str:
     return "\n".join(lines)
 
 
-def _check_columns(statement: exp.Expression, sql: str, columns: Columns) -> None:
+def _check_columns(statement: exp.Expression, sql: str, policy: SQLPolicy,
+                   columns: Columns) -> None:
     """Reject a column the tables do not have, saying what to write instead.
 
     Anything else qualify cannot handle is let through: MySQL has the last word,
     and a valid query must never be blocked here.
     """
     lowered = _lowered(statement)
-    schema = {ALLOWED_SCHEMA: {table: {column.lower(): "TEXT" for column in names}
-                               for table, names in columns.items()}}
+    schema = {policy.schema: {table: {column.lower(): "TEXT" for column in names}
+                              for table, names in columns.items()}}
     try:
-        qualify(lowered, schema=schema, dialect="mysql", validate_qualify_columns=True,
+        qualify(lowered, schema=schema, dialect=policy.dialect, validate_qualify_columns=True,
                 quote_identifiers=False, identify=False)
     except OptimizeError as exc:
         message = str(exc)
@@ -181,7 +193,7 @@ def _check_columns(statement: exp.Expression, sql: str, columns: Columns) -> Non
             column = f"{alias}.{name}" if alias else name
         else:
             return
-        hint = unknown_column_hint(sql, column, columns)
+        hint = unknown_column_hint(sql, column, columns, policy.dialect)
         _reject(hint or f"字段不存在：{column}。")
     except Exception:
         return
@@ -197,8 +209,9 @@ def _existing_limit(statement: exp.Expression) -> int | None:
     return None
 
 
-def validate_and_limit(sql: str, max_rows: int, columns: Columns | None = None) -> SafeSQL:
-    """Check that ``sql`` is one safe read; with ``columns``, also that every column exists."""
+def validate_and_limit(sql: str, max_rows: int, policy: SQLPolicy) -> SafeSQL:
+    """Check that ``sql`` is one safe read of the allowed tables, and that every column
+    exists when the policy knows the columns."""
     cleaned = sql.strip().rstrip(";").strip()
     if not cleaned:
         _reject("SQL 为空")
@@ -208,7 +221,7 @@ def validate_and_limit(sql: str, max_rows: int, columns: Columns | None = None) 
             _reject(reason)
 
     try:
-        statements = sqlglot.parse(cleaned, read="mysql")
+        statements = sqlglot.parse(cleaned, read=policy.dialect)
     except sqlglot.errors.ParseError as exc:
         raise SQLValidationError(f"SQL 无法解析：{exc}") from exc
 
@@ -218,10 +231,10 @@ def validate_and_limit(sql: str, max_rows: int, columns: Columns | None = None) 
 
     statement = statements[0]
     _check_statement_type(statement)
-    _check_tables(statement)
+    _check_tables(statement, policy)
     _check_functions(statement, cleaned)
-    if columns:
-        _check_columns(statement, cleaned, columns)
+    if policy.columns:
+        _check_columns(statement, cleaned, policy, policy.columns)
 
     original_limit = _existing_limit(statement)
     limit_applied = False
@@ -229,5 +242,5 @@ def validate_and_limit(sql: str, max_rows: int, columns: Columns | None = None) 
         statement = statement.limit(max_rows)
         limit_applied = True
 
-    return SafeSQL(sql=statement.sql(dialect="mysql"), limit_applied=limit_applied,
+    return SafeSQL(sql=statement.sql(dialect=policy.dialect), limit_applied=limit_applied,
                    original_limit=original_limit)

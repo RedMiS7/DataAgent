@@ -271,7 +271,7 @@ def _row_contains(row: list, values: list) -> bool:
 
 
 def execute_reference(settings: Settings, sql: str) -> list[list]:
-    safe = validate_and_limit(sql, settings.sql_max_rows)
+    safe = validate_and_limit(sql, settings.sql_max_rows, tools.sql_policy(settings))
     return execute_sql(settings, safe).rows
 
 
@@ -593,9 +593,10 @@ def evaluate_security(settings: Settings, pipeline: AskPipeline | None) -> EvalR
     report = EvalReport()
     cases = load_security_cases()
 
+    policy = tools.sql_policy(settings)
     for case in cases["dangerous_sql"]:
         try:
-            validate_and_limit(case["sql"], settings.sql_max_rows)
+            validate_and_limit(case["sql"], settings.sql_max_rows, policy)
             report.add(CaseResult(id=case["id"], category="dangerous_sql",
                                   question=case["sql"], passed=False,
                                   detail=f"未被拦截（{case['reason']}）"))

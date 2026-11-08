@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306
     mysql_business_db: str = "safe"
+    # The SQL dialect of the business database, as sqlglot names it.
+    sql_dialect: str = "mysql"
     mysql_app_db: str = "dataagent"
     mysql_ro_user: str = "shop_ro"
     mysql_ro_password: str = "dataagent_ro_pwd"

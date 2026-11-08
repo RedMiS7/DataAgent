@@ -758,7 +758,8 @@ def test_sql_failure_logs_the_database_error_and_the_statement(
     context = failing_sql(monkeypatch)
     with caplog.at_level(logging.INFO, logger="app"):
         asyncio.run(tools._make_run_sql(context)(BAD_SQL))
-    record = next(item for item in caplog.records if item.levelno == logging.WARNING)
+    record = next(item for item in caplog.records
+                  if item.levelno == logging.WARNING and "查询 1" in item.getMessage())
     line = record.getMessage()
     assert line.startswith("[1f2c07] 查询 1 失败")
     assert "(1054, \"Unknown column 'cost' in 'field list'\")" in line
@@ -771,7 +772,8 @@ def test_blocked_sql_is_logged(monkeypatch: pytest.MonkeyPatch,
     context = failing_sql(monkeypatch)
     with caplog.at_level(logging.INFO, logger="app"):
         asyncio.run(tools._make_run_sql(context)("DELETE FROM safe.orders"))
-    line = next(item for item in caplog.records if item.levelno == logging.WARNING).getMessage()
+    line = next(item for item in caplog.records
+                  if item.levelno == logging.WARNING and "查询 1" in item.getMessage()).getMessage()
     assert "被拦截" in line
     assert "sql=DELETE FROM safe.orders" in line
 

@@ -11,7 +11,7 @@ from agentscope.message import Msg, TextBlock
 from ..agent.answer import verify_summary
 from ..agent.pipeline import extract_text
 from ..agent.scope_model import build_chat_model
-from ..agent.tools import AgentRunContext, build_breakdown_toolkit
+from ..agent.tools import AgentRunContext, build_breakdown_toolkit, sql_policy
 from ..config import Settings
 from ..nl2sql.executor import execute_sql
 from ..nl2sql.time_parser import TimeRange, parse_time_range, previous_period
@@ -152,7 +152,7 @@ LIMIT 10
 
 
 def _run(settings: Settings, sql: str) -> list[list]:
-    safe = validate_and_limit(sql, settings.sql_max_rows)
+    safe = validate_and_limit(sql, settings.sql_max_rows, sql_policy(settings))
     return execute_sql(settings, safe).rows
 
 

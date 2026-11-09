@@ -46,10 +46,16 @@ def eval_business_connection(settings: Settings,
         yield conn
 
 
+def eval_app_engine(settings: Settings) -> Engine:
+    """The evaluation account on the app database: it reads the logs and the semantic
+    layer, and writes only the evaluation tables."""
+    return _engine(settings.eval_app_url().render_as_string(hide_password=False))
+
+
 @contextmanager
 def eval_app_connection(settings: Settings) -> Iterator[Connection]:
-    """The evaluation account on the app database; it may only read."""
-    with _engine(settings.eval_app_url().render_as_string(hide_password=False)).connect() as conn:
+    """The evaluation account on the app database, for reading."""
+    with eval_app_engine(settings).connect() as conn:
         yield conn
 
 

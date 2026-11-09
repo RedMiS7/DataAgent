@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/app ./app
 COPY data/seed /data/seed
 COPY data/seed_dabench /data/seed_dabench
+# Evaluation cases, so python -m app.evaluation runs in the container without a mount.
+COPY eval/*.json /eval/
+COPY DB/DABench.csv /DB/DABench.csv
 COPY --from=frontend /frontend/dist ./static
 
 EXPOSE 8000

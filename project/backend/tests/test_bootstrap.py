@@ -68,6 +68,8 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
                         lambda conn: calls["tables"].append("call_traces"))
     monkeypatch.setattr(bootstrap.repository, "ensure_entity_column",
                         lambda conn: calls["tables"].append("is_entity"))
+    monkeypatch.setattr(bootstrap, "ensure_eval_tables",
+                        lambda conn: calls["tables"].append("eval_runs"))
     monkeypatch.setattr(bootstrap.repository, "load_seed", lambda path: "seed")
     monkeypatch.setattr(bootstrap.repository, "sync_seed",
                         lambda conn, bundle: calls["sync"].append(bundle))
@@ -216,4 +218,4 @@ def test_setup_makes_sure_the_trace_table_exists(tmp_path: Path, offline: dict) 
     runner = Bootstrapper(make_settings(tmp_path), StubRetriever())  # type: ignore[arg-type]
     runner._connect_database()
     # Both before the semantic layer is synced, which writes is_entity.
-    assert offline["tables"] == ["call_traces", "is_entity"]
+    assert offline["tables"] == ["call_traces", "eval_runs", "is_entity"]

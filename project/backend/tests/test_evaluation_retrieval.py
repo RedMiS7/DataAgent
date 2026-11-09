@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from app.agent import tools
 from app.config import Settings
+from app.evaluation import retrieval as retrieval_eval
+from app.evaluation.retrieval import (
+    expected_tables,
+    retrieval_query,
+    score_case,
+    summarize,
+)
 from app.semantic import repository
 from app.semantic.models import (
     CaseHit,
@@ -20,20 +26,9 @@ from app.semantic.models import (
     SchemaItem,
     TableSemantic,
 )
+from app.semantic.table_search import TableChoice, TableSearch
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
-
-from app.semantic.table_search import TableChoice, TableSearch  # noqa: E402
-
-from eval import retrieval_eval  # noqa: E402
-from eval.retrieval_eval import (  # noqa: E402
-    expected_tables,
-    retrieval_query,
-    score_case,
-    summarize,
-)
 
 QUESTIONS = json.loads((PROJECT_DIR / "eval" / "questions.json").read_text("utf-8"))
 SEED = PROJECT_DIR / "data" / "seed"

@@ -1,25 +1,16 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
-from app.agent import tools
 from app.api.schemas import AnswerPayload, Failure, HistoryMessage, TableBlock
-from app.nl2sql.executor import SQLExecutionError
-from app.safety.validator import SQLValidationError
-
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
-
-from eval import runner  # noqa: E402
-from eval.runner import (  # noqa: E402
+from app.evaluation import runner
+from app.evaluation.runner import (
+    Activity,
     CaseResult,
     EvalReport,
-    ToolProbe,
     compare_rows_loose,
     failure_hint,
     previous_reference,
@@ -27,6 +18,7 @@ from eval.runner import (  # noqa: E402
     report_metrics,
     shift_dates,
 )
+from app.safety.validator import SQLValidationError
 
 
 def test_loose_compare_allows_extra_columns_in_any_order() -> None:
@@ -47,47 +39,46 @@ def test_loose_compare_matches_each_value_to_its_own_cell() -> None:
     assert compare_rows_loose([[5, 5]], [[5, 6, 5]])
 
 
-def _fake_tools(monkeypatch: pytest.MonkeyPatch, *, invalid: set[str],
-                unknown_column: set[str]) -> None:
-    def validate(sql: str, max_rows: int) -> str:
-        if sql in invalid:
-            raise SQLValidationError("字段不存在：orders.amount")
-        return sql
-
-    def execute(settings: Any, safe_sql: str) -> str:
-        if safe_sql in unknown_column:
-            raise SQLExecutionError("(1054, \"Unknown column 'cost' in 'field list'\")", safe_sql)
-        return "rows"
-
-    monkeypatch.setattr(tools, "validate_and_limit", validate)
-    monkeypatch.setattr(tools, "execute_sql", execute)
-    monkeypatch.setattr(tools, "describe_tables", lambda settings, names: "columns")
+def _query(status: str, error: str = "") -> dict:
+    return {"status": status, "error": error}
 
 
-def test_probe_counts_attempts_failures_and_field_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_tools(monkeypatch, invalid={"bad"}, unknown_column={"cost"})
-    with ToolProbe().watching() as probe:
-        with pytest.raises(SQLValidationError):
-            tools.validate_and_limit("bad", 10)
-        tools.validate_and_limit("cost", 10)
-        with pytest.raises(SQLExecutionError):
-            tools.execute_sql(None, "cost")
-        assert tools.describe_tables(None, ["orders"]) == "columns"
-        tools.validate_and_limit("good", 10)
-        assert tools.execute_sql(None, "good") == "rows"
+def test_activity_counts_attempts_failures_and_field_errors_from_the_archive() -> None:
+    queries = [
+        _query("blocked", "字段不存在：orders.amount"),
+        _query("failed", "SQL 执行失败：(1054, \"Unknown column 'cost' in 'field list'\")"),
+        _query("blocked", runner.UNSEEN_PREFIX + "refunds。先调用 search_semantic"),
+        _query("ok"),
+    ]
+    calls = [{"kind": "model", "name": "deepseek-chat"},
+             {"kind": "tool", "name": "describe_table"},
+             {"kind": "tool", "name": "search_semantic"},
+             {"kind": "tool", "name": "search_semantic"},
+             {"kind": "tool", "name": "run_sql"}]
+    activity = Activity.from_archive(queries, calls)
+    assert activity == Activity(sql_attempts=4, sql_failures=3, field_errors=2,
+                                describe_calls=1, search_calls=2, unseen_rejections=1)
 
-    assert probe.sql_attempts == 3
-    assert probe.sql_failures == 2
-    assert probe.field_errors == 2
-    assert probe.describe_calls == 1
 
+def test_activity_is_read_by_log_id_and_empty_without_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import contextmanager
+    read: list[int] = []
 
-def test_probe_restores_the_tools_afterwards(monkeypatch: pytest.MonkeyPatch) -> None:
-    _fake_tools(monkeypatch, invalid=set(), unknown_column=set())
-    before = tools.execute_sql
-    with ToolProbe().watching():
-        assert tools.execute_sql is not before
-    assert tools.execute_sql is before
+    @contextmanager
+    def connection(settings: Any) -> Any:
+        yield "conn"
+
+    def executions(conn: Any, log_id: int) -> list[dict]:
+        read.append(log_id)
+        return [_query("ok")]
+
+    monkeypatch.setattr(runner, "eval_app_connection", connection)
+    monkeypatch.setattr(runner.session, "load_query_executions", executions)
+    monkeypatch.setattr(runner.session, "load_call_traces", lambda conn, log_id: [])
+    reader = runner.archive_reader(_reference_settings())
+    assert reader(None) == Activity() and read == []
+    assert reader(7).sql_attempts == 1 and read == [7]
+    assert runner.archive_reader(None)(7) == Activity()
 
 
 def test_reply_history_mirrors_the_frontend() -> None:
@@ -119,32 +110,30 @@ def _answer(sql: str = "", rows: list[list] | None = None, status: str = "ok") -
 
 
 def test_failure_hint_names_what_went_wrong() -> None:
-    probe = ToolProbe()
     reference = "SELECT 1 FROM safe.orders o WHERE o.paid_at >= '2026-09-01'"
-    hint = failure_hint("single_table", _answer(status="error"), reference, [[1]], [], probe)
+    hint = failure_hint("single_table", _answer(status="error"), reference, [[1]], [])
     assert hint == "没有结果"
-    probe.events.append(runner.ProbeEvent("execute", False, "Unknown column 'x'"))
-    hint = failure_hint("single_table", _answer(status="error"), reference, [[1]], [], probe)
+    hint = failure_hint("single_table", _answer(status="error"), reference, [[1]], [],
+                        field_errors=1)
     assert hint == "字段不存在后未恢复"
 
-    probe = ToolProbe()
     same_dates = "SELECT 1 FROM safe.orders o WHERE o.paid_at >= '2026-09-01'"
     assert failure_hint("single_table", _answer(same_dates, [[1], [2]]), reference, [[1]],
-                        [[1], [2]], probe) == "行数不同"
-    assert failure_hint("single_table", _answer(same_dates, [[1, 2]]), reference, [[1]],
-                        [[1, 2]], probe) == "列数不同"
+                        [[1], [2]]) == "行数不同"
+    assert failure_hint("single_table", _answer(same_dates, [[1]]), reference, [[1, 2]],
+                        [[1]]) == "列数不同"
     other_dates = "SELECT 1 FROM safe.orders o WHERE o.paid_at >= '2026-08-01'"
     assert failure_hint("single_table", _answer(other_dates, [[2]]), reference, [[1]],
-                        [[2]], probe) == "日期不同"
+                        [[2]]) == "日期不同"
     other_table = "SELECT 1 FROM safe.refunds r WHERE r.completed_at >= '2026-09-01'"
     assert failure_hint("single_table", _answer(other_table, [[2]]), reference, [[1]],
-                        [[2]], probe) == "用的表不同"
+                        [[2]]) == "用的表不同"
     assert failure_hint("single_table", _answer(same_dates, [[2]]), reference, [[1]],
-                        [[2]], probe) == "数值不同"
+                        [[2]]) == "数值不同"
+    assert failure_hint("attribution", _answer(same_dates, [[2]]), "", [], [[2]]) == "没有判分依据"
     assert failure_hint("attribution", _answer(same_dates, [[2]]), "", [], [[2]],
-                        probe) == "没有参考答案"
-    assert failure_hint("direct", _answer(same_dates, [[2]]), "", [], [[2]],
-                        probe) == "没有直接回答"
+                        missing_facts=["渠道：结论没有提到 直播"]) == "结论缺少检查点"
+    assert failure_hint("direct", _answer(same_dates, [[2]]), "", [], [[2]]) == "没有直接回答"
 
 
 def test_report_metrics_sum_the_cases() -> None:
@@ -207,14 +196,15 @@ def test_multiturn_case_asks_earlier_turns_and_compares_loosely(
 
     case = report.cases[0]
     assert case.passed and case.loose_passed
-    assert "宽松比对通过" in case.detail
+    assert "严格比对不通过" in case.detail
     asked, _, history = pipeline.calls[-1]
     assert asked == "按渠道拆一下"
     assert [(item.role, item.content) for item in history] == [
         ("user", "上个月GMV是多少？"), ("assistant", "GMV 为 30 元。")]
 
 
-def test_strict_case_still_fails_on_extra_columns(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extra_columns_pass_and_strict_compare_is_kept_for_reference(
+        monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner, "execute_reference", lambda settings, sql: [["直播", 10.0]])
     pipeline = _FakePipeline({"各渠道GMV": _answer("SELECT ...", [["直播", 10.0, 3]])})
     question = {"id": "m01", "category": "multi_table", "question": "各渠道GMV",
@@ -222,8 +212,19 @@ def test_strict_case_still_fails_on_extra_columns(monkeypatch: pytest.MonkeyPatc
 
     case = runner.evaluate_questions(None, pipeline, [question]).cases[0]  # type: ignore[arg-type]
 
-    assert not case.passed and case.loose_passed
-    assert case.failure_hint == "列数不同"
+    assert case.passed and case.loose_passed and case.strict_passed is False
+    assert "严格比对不通过" in case.detail
+
+
+def test_missing_columns_still_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runner, "execute_reference", lambda settings, sql: [["直播", 10.0, 3]])
+    pipeline = _FakePipeline({"各渠道GMV": _answer("SELECT ...", [["直播", 10.0]])})
+    question = {"id": "m01", "category": "multi_table", "question": "各渠道GMV",
+                "expected_sql": "SELECT ..."}
+
+    case = runner.evaluate_questions(None, pipeline, [question]).cases[0]  # type: ignore[arg-type]
+
+    assert not case.passed and case.failure_hint == "列数不同"
 
 
 def test_written_history_is_sent_as_is() -> None:
@@ -411,9 +412,11 @@ def test_cases_are_picked_by_the_business_database() -> None:
 
 def test_case_meta_leaves_suspect_cases_unscored() -> None:
     case = {"dataset": "dabench", "kind": "data"}
-    assert runner.case_meta(case) == {"dataset": "dabench", "kind": "data", "scored": True}
+    assert runner.case_meta(case) == {"dataset": "dabench", "kind": "data", "scored": True,
+                                      "unscored_reason": ""}
     assert runner.case_meta({**case, "review": {"status": "weak_premise"}})["scored"]
-    assert not runner.case_meta({**case, "review": {"status": "suspect"}})["scored"]
+    suspect = runner.case_meta({**case, "review": {"status": "suspect"}})
+    assert not suspect["scored"] and suspect["unscored_reason"] == "存疑题"
 
 
 KINDS = {"data", "routing", "rule", "behavior"}

@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .. import demo_data, importer
@@ -16,6 +16,7 @@ from ..db import accounts
 from ..db.engine import app_connection, business_connection
 from ..embedding import build_embedder
 from ..embedding.base import EmbeddingError
+from ..evaluation.tables import ensure_eval_tables
 from ..vector import build_vector_store
 from . import indexer, repository
 
@@ -98,11 +99,17 @@ def cmd_grant_app_user() -> int:
 
 def cmd_grant_eval_user() -> int:
     """Create the evaluation account and let it read this instance's views and app
-    database, as the admin account. Run once per instance, e.g. again for DABench."""
+    database and write the evaluation tables, as the admin account. Run once per
+    instance, e.g. again for DABench. Creates the evaluation tables first if missing."""
     settings = get_settings()
+    if not settings.mysql_eval_password:
+        print("授权失败：评测账号的密码为空，请在 .env 设置 MYSQL_EVAL_PASSWORD", file=sys.stderr)
+        return 1
     engine = create_engine(settings.admin_server_url.render_as_string(hide_password=False))
     try:
         with engine.begin() as conn:
+            conn.execute(text(f"USE `{accounts.checked_name(settings.mysql_app_db, '应用库名')}`"))
+            ensure_eval_tables(conn)
             statements = accounts.ensure_eval_user(conn, settings.mysql_eval_user,
                                                    settings.mysql_eval_password,
                                                    settings.mysql_business_db,

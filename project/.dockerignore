@@ -7,7 +7,9 @@
 .env
 .env.*
 !.env.example
-eval
+eval/results
+eval/run_eval.py
+DB/data
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts

@@ -21,6 +21,7 @@ from .db.engine import (
 )
 from .embedding import build_embedder
 from .embedding.base import EmbeddingProvider
+from .evaluation.tables import ensure_eval_tables
 from .semantic import indexer, repository
 from .semantic.retriever import SemanticRetriever
 from .vector import build_vector_store
@@ -181,9 +182,11 @@ class Bootstrapper:
                 "python -m app.semantic.cli grant_app_user") from exc
         if not reachable:
             raise RuntimeError(f"连不上 MySQL：{self.settings.mysql_host}:{self.settings.mysql_port}")
-        # Databases created before call tracing and query archiving lack these tables.
+        # Databases created before call tracing, query archiving and stored evaluation
+        # runs lack these tables.
         with app_connection(self.settings) as conn:
             session.ensure_log_tables(conn)
+            ensure_eval_tables(conn)
             repository.ensure_entity_column(conn)
         return "done", ""
 

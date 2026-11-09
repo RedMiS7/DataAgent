@@ -198,10 +198,23 @@ def test_the_evaluation_account_has_a_name_but_no_default_password(tmp_path: Pat
     assert settings.mysql_eval_password == ""
 
 
-def test_eval_grants_only_read_the_views_and_the_app_database() -> None:
-    assert accounts.eval_grant_statements("judge", "dabench", "dataagent_dabench") == [
+EVAL_TABLE_GRANTS = [
+    "GRANT SELECT, INSERT, UPDATE ON `{db}`.`eval_runs` TO '{user}'@'%'",
+    "GRANT SELECT, INSERT, UPDATE ON `{db}`.`eval_case_results` TO '{user}'@'%'"]
+
+
+def _eval_table_grants(db: str, user: str = "dataagent_eval") -> list[str]:
+    return [grant.format(db=db, user=user) for grant in EVAL_TABLE_GRANTS]
+
+
+def test_eval_grants_read_the_views_and_the_app_database_and_write_only_eval_tables() -> None:
+    statements = accounts.eval_grant_statements("judge", "dabench", "dataagent_dabench")
+    assert statements == [
         "GRANT SELECT ON `dabench`.* TO 'judge'@'%'",
-        "GRANT SELECT ON `dataagent_dabench`.* TO 'judge'@'%'"]
+        "GRANT SELECT ON `dataagent_dabench`.* TO 'judge'@'%'",
+        *_eval_table_grants("dataagent_dabench", "judge")]
+    assert not any(word in sql for sql in statements
+                   for word in ("DELETE", "DROP", "CREATE", "ALTER", "ALL", "GRANT OPTION"))
 
 
 def test_ensure_eval_user_binds_the_password_and_refuses_an_empty_one() -> None:
@@ -234,7 +247,13 @@ def test_grant_eval_user_grants_this_instance(tmp_path: Path, monkeypatch: pytes
     assert cli.main(["grant_eval_user"]) == 0
     assert [sql for sql in conn.sql if sql.startswith("GRANT")] == [
         "GRANT SELECT ON `dabench`.* TO 'dataagent_eval'@'%'",
-        "GRANT SELECT ON `dataagent_dabench`.* TO 'dataagent_eval'@'%'"]
+        "GRANT SELECT ON `dataagent_dabench`.* TO 'dataagent_eval'@'%'",
+        *_eval_table_grants("dataagent_dabench")]
+    # The evaluation tables are made in this instance's app database before the grants.
+    first_grant = next(index for index, sql in enumerate(conn.sql) if sql.startswith("GRANT"))
+    assert conn.sql[0] == "USE `dataagent_dabench`"
+    made = [sql for sql in conn.sql[:first_grant] if sql.startswith("CREATE TABLE")]
+    assert [sql.split()[5] for sql in made] == ["eval_runs", "eval_case_results"]
     assert engine.disposed
     output = capsys.readouterr().out
     assert "dataagent_eval" in output and "secret" not in output
@@ -261,7 +280,12 @@ def test_importing_a_dataset_lets_the_evaluation_account_read_it(
                             PROJECT_DIR / "data" / "initdb" / "02_app_schema.sql")
     grants = [sql for sql in conn.sql if sql.startswith("GRANT")]
     assert grants[2:] == ["GRANT SELECT ON `ds`.* TO 'dataagent_eval'@'%'",
-                          "GRANT SELECT ON `dataagent_ds`.* TO 'dataagent_eval'@'%'"]
+                          "GRANT SELECT ON `dataagent_ds`.* TO 'dataagent_eval'@'%'",
+                          *_eval_table_grants("dataagent_ds")]
+    # Table grants need the tables, so the app schema runs first.
+    made = max(index for index, sql in enumerate(conn.sql)
+               if "CREATE TABLE IF NOT EXISTS eval_case_results" in sql)
+    assert made < conn.sql.index(grants[2])
     # The raw database is never granted to it.
     assert not any("ds_raw" in grant for grant in grants)
 

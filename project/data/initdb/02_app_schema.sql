@@ -145,3 +145,51 @@ CREATE TABLE IF NOT EXISTS call_traces (
     created_at    DATETIME NOT NULL,
     KEY idx_call_traces_log (log_id)
 ) ENGINE=InnoDB;
+
+-- Evaluation runs (python -m app.evaluation) and one row per case and attempt.
+-- The evaluation account writes these two tables and only reads the others.
+CREATE TABLE IF NOT EXISTS eval_runs (
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+    dataset       VARCHAR(64) NOT NULL,
+    mode          VARCHAR(16) NOT NULL,
+    categories    JSON NULL,
+    options       JSON NULL,
+    repeat_count  INT NOT NULL DEFAULT 1,
+    concurrency   INT NOT NULL DEFAULT 1,
+    status        VARCHAR(16) NOT NULL,
+    done          INT NOT NULL DEFAULT 0,
+    total         INT NOT NULL DEFAULT 0,
+    llm_model     VARCHAR(64) NOT NULL DEFAULT '',
+    schema_mode   VARCHAR(16) NOT NULL DEFAULT '',
+    git_commit    VARCHAR(40) NOT NULL DEFAULT '',
+    summary       JSON NULL,
+    error         TEXT NULL,
+    started_at    DATETIME NOT NULL,
+    finished_at   DATETIME NULL,
+    KEY idx_eval_runs_status (status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS eval_case_results (
+    id             BIGINT PRIMARY KEY AUTO_INCREMENT,
+    run_id         BIGINT NOT NULL,
+    case_id        VARCHAR(64) NOT NULL,
+    attempt        INT NOT NULL DEFAULT 1,
+    dataset        VARCHAR(64) NOT NULL DEFAULT '',
+    kind           VARCHAR(32) NOT NULL DEFAULT '',
+    category       VARCHAR(32) NOT NULL DEFAULT '',
+    passed         TINYINT(1) NOT NULL,
+    scored         TINYINT(1) NOT NULL DEFAULT 1,
+    detail         TEXT NULL,
+    failure_hint   VARCHAR(64) NOT NULL DEFAULT '',
+    sql_text       TEXT NULL,
+    summary        TEXT NULL,
+    summary_source VARCHAR(16) NOT NULL DEFAULT '',
+    warnings       JSON NULL,
+    log_id         BIGINT NULL,
+    input_tokens   INT NOT NULL DEFAULT 0,
+    output_tokens  INT NOT NULL DEFAULT 0,
+    duration_ms    INT NOT NULL DEFAULT 0,
+    result         JSON NOT NULL,
+    created_at     DATETIME NOT NULL,
+    UNIQUE KEY uk_eval_case (run_id, case_id, attempt)
+) ENGINE=InnoDB;

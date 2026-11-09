@@ -492,13 +492,7 @@ def test_a_figure_from_an_uncited_step_is_verified_and_shown(analyze) -> None:
 # Eval scoring
 
 def _runner() -> Any:
-    import sys
-    from pathlib import Path
-
-    project = str(Path(__file__).resolve().parents[2])
-    if project not in sys.path:
-        sys.path.insert(0, project)
-    from eval import runner
+    from app.evaluation import runner
     return runner
 
 
@@ -527,5 +521,6 @@ def test_eval_scores_an_analysis() -> None:
     passed, detail = runner.score_analysis(_answer(), question)
     assert not passed and "缺整体" in detail
     warned = _answer(plan=["整体对比"], warnings=["这些数字未能在查询结果中核对：6.3%"])
-    passed, detail = runner.score_analysis(warned, question)
-    assert not passed and "数字未核对" in detail
+    # Unverified figures are no longer scored (plan 1.4).
+    passed, _ = runner.score_analysis(warned, question)
+    assert passed

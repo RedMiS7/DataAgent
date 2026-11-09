@@ -33,6 +33,7 @@ from ..semantic.schema_context import (
     bare_name,
     build_schema_context,
     render_table,
+    table_names,
 )
 from .trace import CallTrace
 
@@ -224,10 +225,6 @@ def retrieved_tables(bundle: RetrievalBundle, schema: str) -> list[str]:
     return list(dict.fromkeys(tables))
 
 
-def table_names(sql: str, schema: str) -> list[str]:
-    """The tables a SQL names as ``schema.table``, in order."""
-    found = re.findall(rf"\b{re.escape(schema)}\.(\w+)\b", sql, re.IGNORECASE)
-    return list(dict.fromkeys(name.lower() for name in found))
 
 
 def _column_hint(settings: Settings, sql: str, message: str) -> str:

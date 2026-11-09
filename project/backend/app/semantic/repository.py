@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -8,6 +9,18 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from .models import CaseHit, Metric, SchemaItem, TableSemantic
+
+# Distinct values read per entity column; enough for names and places, not for ids.
+ENTITY_VALUE_LIMIT = 2000
+IDENTIFIER = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)?$")
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignKey:
+    table: str
+    column: str
+    ref_table: str
+    ref_column: str
 
 
 @dataclass(slots=True)
@@ -50,12 +63,12 @@ def sync_seed(conn: Connection, bundle: SeedBundle) -> dict[str, int]:
         conn.execute(
             text(
                 "INSERT INTO semantic_schema_items (table_name, column_name, description, synonyms, "
-                "join_hint, schema_version, enabled, updated_at) "
+                "join_hint, schema_version, enabled, is_entity, updated_at) "
                 "VALUES (:table_name, :column_name, :description, :synonyms, :join_hint, "
-                ":schema_version, :enabled, NOW()) "
+                ":schema_version, :enabled, :is_entity, NOW()) "
                 "ON DUPLICATE KEY UPDATE description=VALUES(description), synonyms=VALUES(synonyms), "
                 "join_hint=VALUES(join_hint), schema_version=VALUES(schema_version), "
-                "enabled=VALUES(enabled), updated_at=NOW()"
+                "enabled=VALUES(enabled), is_entity=VALUES(is_entity), updated_at=NOW()"
             ),
             item.model_dump(),
         )
@@ -97,8 +110,8 @@ def fetch_tables(conn: Connection, enabled_only: bool = True) -> list[TableSeman
 def fetch_schema_items(conn: Connection, enabled_only: bool = True) -> list[SchemaItem]:
     where = "WHERE enabled = 1" if enabled_only else ""
     rows = conn.execute(text(
-        f"SELECT table_name, column_name, description, synonyms, join_hint, schema_version, enabled "
-        f"FROM semantic_schema_items {where} ORDER BY table_name, column_name"
+        f"SELECT table_name, column_name, description, synonyms, join_hint, schema_version, enabled, "
+        f"is_entity FROM semantic_schema_items {where} ORDER BY table_name, column_name"
     )).mappings().all()
     return [SchemaItem(**dict(row)) for row in rows]
 
@@ -131,19 +144,55 @@ def fetch_cases(conn: Connection, status: str = "approved") -> list[CaseHit]:
     return [CaseHit(id=row["id"], question=row["question"], sql_text=row["sql_text"]) for row in rows]
 
 
-def fetch_entity_values(business_conn: Connection) -> list[dict[str, str]]:
-    queries = [
-        ("product", "SELECT DISTINCT name FROM safe.products WHERE status = 1"),
-        ("category", "SELECT DISTINCT name FROM safe.categories"),
-        ("channel", "SELECT DISTINCT name FROM safe.channels"),
-        ("province", "SELECT DISTINCT province FROM safe.orders"),
-    ]
+def _quoted(conn: Connection, name: str) -> str:
+    if not IDENTIFIER.match(name):
+        raise ValueError(f"实体字段的名字不合法：{name}")
+    quote = conn.dialect.identifier_preparer.quote
+    return ".".join(quote(part) for part in name.split("."))
+
+
+def fetch_entity_values(business_conn: Connection,
+                        items: list[SchemaItem]) -> list[dict[str, str]]:
+    """The values of the columns marked ``is_entity``, with the column they come from."""
     values: list[dict[str, str]] = []
-    for entity_type, sql in queries:
-        for (value,) in business_conn.execute(text(sql)).all():
+    for item in items:
+        if not item.is_entity:
+            continue
+        column = _quoted(business_conn, item.column_name)
+        table = _quoted(business_conn, item.table_name)
+        rows = business_conn.execute(text(
+            f"SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL LIMIT :limit"
+        ), {"limit": ENTITY_VALUE_LIMIT}).all()
+        entity_type = f"{item.table_name.split('.')[-1]}.{item.column_name}"
+        for (value,) in rows:
             if value:
-                values.append({"entity_type": entity_type, "value": str(value)})
+                values.append({"entity_type": entity_type, "value": str(value),
+                               "table_name": item.table_name, "column_name": item.column_name})
     return values
+
+
+def fetch_foreign_keys(business_conn: Connection) -> list[ForeignKey]:
+    """Foreign keys the database declares in the connected schema. Views have none."""
+    rows = business_conn.execute(text(
+        "SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME "
+        "FROM information_schema.KEY_COLUMN_USAGE "
+        "WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL "
+        "ORDER BY TABLE_NAME, COLUMN_NAME"
+    )).all()
+    return [ForeignKey(table.lower(), column.lower(), ref_table.lower(), ref_column.lower())
+            for table, column, ref_table, ref_column in rows]
+
+
+def ensure_entity_column(conn: Connection) -> None:
+    """Databases created before entity columns were marked lack ``is_entity``."""
+    found = conn.execute(text(
+        "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+        "AND TABLE_NAME = 'semantic_schema_items' AND COLUMN_NAME = 'is_entity'"
+    )).scalar()
+    if not found:
+        conn.execute(text(
+            "ALTER TABLE semantic_schema_items ADD COLUMN is_entity TINYINT NOT NULL DEFAULT 0 "
+            "AFTER enabled"))
 
 
 def insert_feedback(conn: Connection, log_id: int, verdict: str) -> None:

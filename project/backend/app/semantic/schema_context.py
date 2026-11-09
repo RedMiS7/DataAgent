@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from .models import SchemaItem
+from .repository import ForeignKey
 
 # Table name -> [(column, type)], as the database reports them, in column order.
 TableColumns = Mapping[str, Sequence[tuple[str, str]]]
@@ -44,6 +45,12 @@ def bare_name(name: str, prefix: str) -> str:
     return name.strip().strip("`").lower().removeprefix(prefix)
 
 
+def table_names(sql: str, schema: str) -> list[str]:
+    """The tables a SQL names as ``schema.table``, in order."""
+    found = re.findall(rf"\b{re.escape(schema)}\.(\w+)\b", sql, re.IGNORECASE)
+    return list(dict.fromkeys(name.lower() for name in found))
+
+
 def column_line(column: str, column_type: str, item: SchemaItem | None) -> str:
     line = f"- {column}（{column_type}）"
     if item is None:
@@ -65,20 +72,42 @@ def render_table(table: str, columns: Sequence[tuple[str, str]],
     return "\n".join([title, *lines])
 
 
-def join_graph(items: Iterable[SchemaItem], prefix: str) -> dict[str, set[str]]:
-    """Which tables join which, from the join hints ("关联 safe.orders.id")."""
-    graph: dict[str, set[str]] = {}
+def hint_keys(items: Iterable[SchemaItem], prefix: str) -> list[ForeignKey]:
+    """Links between columns written in the join hints ("关联 safe.orders.id")."""
+    keys: list[ForeignKey] = []
     for item in items:
         source = bare_name(item.table_name, prefix)
         for match in JOIN_HINT.finditer(item.join_hint):
-            parts = match.group(1).split(".")
+            parts = match.group(1).lower().split(".")
             if len(parts) < 2:
                 continue
-            target = parts[-2].lower()
-            if target != source:
-                graph.setdefault(source, set()).add(target)
-                graph.setdefault(target, set()).add(source)
+            keys.append(ForeignKey(source, item.column_name.lower(), parts[-2], parts[-1]))
+    return keys
+
+
+def join_graph(items: Iterable[SchemaItem], prefix: str,
+               keys: Iterable[ForeignKey] = ()) -> dict[str, set[str]]:
+    """Which tables join which: the database's foreign keys and the join hints."""
+    graph: dict[str, set[str]] = {}
+    for key in [*keys, *hint_keys(items, prefix)]:
+        if key.ref_table != key.table:
+            graph.setdefault(key.table, set()).add(key.ref_table)
+            graph.setdefault(key.ref_table, set()).add(key.table)
     return graph
+
+
+def pointed_tables(columns: Iterable[tuple[str, str]], keys: Iterable[ForeignKey]) -> list[str]:
+    """The tables these (table, column) pairs link to: a question about "各渠道" matches
+    orders.channel_id, and the names are in channels."""
+    links: dict[tuple[str, str], list[str]] = {}
+    for key in keys:
+        links.setdefault((key.table, key.column), []).append(key.ref_table)
+    found: list[str] = []
+    for table, column in columns:
+        for target in links.get((table, column.lower()), []):
+            if target != table and target not in found:
+                found.append(target)
+    return found
 
 
 def _path_to(graph: Mapping[str, set[str]], start: str, reached: set[str]) -> list[str]:

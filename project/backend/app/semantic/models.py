@@ -18,6 +18,9 @@ class SchemaItem(BaseModel):
     schema_version: str = "v1"
     # 0 keeps a column out of retrieval. describe_table still shows it.
     enabled: int = 1
+    # 1 marks a column whose values users name in questions ("直播带货", "顺丰");
+    # they are read from the database and matched against the question.
+    is_entity: int = 0
 
 
 class Metric(BaseModel):
@@ -52,6 +55,9 @@ class CaseHit(BaseModel):
 class EntityHit(BaseModel):
     entity_type: str
     value: str
+    # Where the value lives, as the semantic layer names the table ("safe.channels").
+    table_name: str = ""
+    column_name: str = ""
     score: float = 0.0
     source: str = "exact"
 

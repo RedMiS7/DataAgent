@@ -28,7 +28,9 @@ def _sql_that_ran() -> list[str]:
     """Every SQL the evaluations ran successfully, and every reference answer."""
     found: set[str] = set()
     for path in (PROJECT_DIR / "eval" / "results").glob("*.json"):
-        for case in json.loads(path.read_text(encoding="utf-8"))["summary"]["cases"]:
+        result = json.loads(path.read_text(encoding="utf-8"))
+        # Retrieval results hold no SQL.
+        for case in result.get("summary", {}).get("cases", []):
             if case.get("sql") and case.get("status") in ("ok", "empty", "partial"):
                 found.add(case["sql"])
     for question in json.loads((PROJECT_DIR / "eval" / "questions.json").read_text("utf-8")):

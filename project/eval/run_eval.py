@@ -13,6 +13,7 @@ from app.agent.pipeline import AskPipeline  # noqa: E402
 from app.agent.scope_model import build_chat_model  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.embedding import build_embedder  # noqa: E402
+from app.rerank import build_reranker  # noqa: E402
 from app.semantic.retriever import SemanticRetriever  # noqa: E402
 from app.vector import build_vector_store  # noqa: E402
 
@@ -98,7 +99,7 @@ def main() -> int:
     if args.mode == "retrieval":
         # Not part of "all": it calls no model and is run on its own while tuning retrieval.
         result = evaluate_retrieval(settings, retriever, questions[:args.limit]
-                                    if args.limit else questions)
+                                    if args.limit else questions, build_reranker(settings))
         print_retrieval(result)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps({

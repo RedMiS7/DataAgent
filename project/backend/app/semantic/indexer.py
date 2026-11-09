@@ -11,6 +11,11 @@ from .models import CaseHit, Metric, SchemaItem
 BATCH = 128
 
 
+# Raised when what the index stores changes, so an older index is rebuilt at start-up.
+# 2: entity values record their table and column.
+INDEX_VERSION = 2
+
+
 def _schema_text(item: SchemaItem) -> str:
     parts = [f"{item.table_name}.{item.column_name}", item.description]
     if item.synonyms:
@@ -49,7 +54,7 @@ def build_index(settings: Settings, app_conn: Connection, business_conn: Connect
     schema_items = repository.fetch_schema_items(app_conn)
     metrics = repository.fetch_metrics(app_conn)
     cases = repository.fetch_cases(app_conn)
-    entities = repository.fetch_entity_values(business_conn)
+    entities = repository.fetch_entity_values(business_conn, schema_items)
 
     collections = {
         "schema_items": settings.collection_name("schema_items"),
@@ -63,7 +68,8 @@ def build_index(settings: Settings, app_conn: Connection, business_conn: Connect
     model_name = embedder.model_name
     schema_records = [
         (f"schema:{item.table_name}.{item.column_name}", _schema_text(item),
-         {"table": item.table_name, "column": item.column_name, "model": model_name})
+         {"table": item.table_name, "column": item.column_name, "model": model_name,
+         "index_version": INDEX_VERSION})
         for item in schema_items
     ]
     metric_records = [
@@ -78,7 +84,9 @@ def build_index(settings: Settings, app_conn: Connection, business_conn: Connect
     ]
     entity_records = [
         (f"entity:{row['entity_type']}:{row['value']}", row["value"],
-         {"entity_type": row["entity_type"], "value": row["value"], "model": model_name})
+         {"entity_type": row["entity_type"], "value": row["value"],
+          "table_name": row["table_name"], "column_name": row["column_name"],
+          "model": model_name})
         for row in entities
     ]
 

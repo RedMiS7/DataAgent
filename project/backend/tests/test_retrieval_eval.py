@@ -25,6 +25,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
+from app.semantic.table_search import TableChoice, TableSearch  # noqa: E402
+
 from eval import retrieval_eval  # noqa: E402
 from eval.retrieval_eval import (  # noqa: E402
     expected_tables,
@@ -119,9 +121,25 @@ class _Retriever:
         return RetrievalBundle(schema_items=[SchemaHit(item=item)])
 
 
+class _Searcher:
+    """Finds orders and categories, as if completion had joined them."""
+
+    def __init__(self, *args: Any) -> None:
+        return None
+
+    def search(self, query: str, conn: Any, *, rerank: bool, complete: bool) -> TableSearch:
+        tables = [TableChoice("orders", ["检索命中"])]
+        if complete:
+            tables.append(TableChoice("categories", ["关联补全"]))
+        return TableSearch(query=query, tables=tables, candidates=["orders"], metrics=[],
+                           cases=[], entities=[], reranked=rerank,
+                           rerank_note="")
+
+
 def test_evaluate_retrieval_scores_every_variant(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(retrieval_eval, "app_connection", lambda settings: _Connection())
     monkeypatch.setattr(retrieval_eval, "SemanticRetriever", lambda *args: _Retriever())
+    monkeypatch.setattr(retrieval_eval, "TableSearcher", _Searcher)
     monkeypatch.setattr(tools, "table_columns",
                         lambda settings: {"orders": [("id", "bigint")],
                                           "categories": [("id", "int")]})
@@ -137,9 +155,13 @@ def test_evaluate_retrieval_scores_every_variant(monkeypatch: pytest.MonkeyPatch
     ]
     report = retrieval_eval.evaluate_retrieval(Settings(_env_file=None), _Retriever(),  # type: ignore[arg-type]
                                                questions)
-    assert set(report["variants"]) == set(retrieval_eval.VARIANTS)
+    assert set(report["variants"]) == {*retrieval_eval.VARIANTS, *retrieval_eval.SEARCH_VARIANTS}
     plain = report["variants"]["vector"]
     assert (plain["passed"], plain["total"]) == (1, 2)
     assert plain["cases"][1]["missing"] == ["categories"]
     assert plain["tokens_avg"] > 0
     assert report["vector_degraded"] == []
+    searched = report["variants"]["hybrid+rerank+complete"]
+    assert (searched["passed"], searched["total"]) == (2, 2)
+    assert searched["cases"][1]["reasons"] == {"orders": ["检索命中"], "categories": ["关联补全"]}
+    assert report["variants"]["hybrid"]["passed"] == 1

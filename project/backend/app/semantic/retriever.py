@@ -55,7 +55,7 @@ class SemanticRetriever:
         metrics = repository.fetch_metrics(conn)
         cases = repository.fetch_cases(conn)
         with business_connection(self.settings) as business_conn:
-            entities = repository.fetch_entity_values(business_conn)
+            entities = repository.fetch_entity_values(business_conn, schema_items)
 
         if self._uses_keyword_only():
             return self._keyword_fallback(question, bundle, schema_items, metrics, cases, entities)
@@ -160,6 +160,8 @@ class SemanticRetriever:
                 if key not in seen:
                     seen.add(key)
                     hits.append(EntityHit(entity_type=row["entity_type"], value=value,
+                                          table_name=row["table_name"],
+                                          column_name=row["column_name"],
                                           score=1.0, source="exact"))
 
         if self.store is None or not hits:
@@ -177,8 +179,10 @@ class SemanticRetriever:
                 if key in seen:
                     continue
                 seen.add(key)
-                hits.append(EntityHit(entity_type=key[0], value=key[1], score=hit.score,
-                                      source="vector"))
+                hits.append(EntityHit(entity_type=key[0], value=key[1],
+                                      table_name=str(hit.payload.get("table_name", "")),
+                                      column_name=str(hit.payload.get("column_name", "")),
+                                      score=hit.score, source="vector"))
         hits.sort(key=lambda hit: hit.score, reverse=True)
         return hits[:5]
 
@@ -212,7 +216,9 @@ class SemanticRetriever:
         for row in entities:
             if row["value"] and row["value"] in question:
                 bundle.entities.append(EntityHit(entity_type=row["entity_type"],
-                                                 value=row["value"], score=1.0,
+                                                 value=row["value"],
+                                                 table_name=row["table_name"],
+                                                 column_name=row["column_name"], score=1.0,
                                                  source="keyword"))
         if bundle.entities:
             bundle.entities = bundle.entities[:5]

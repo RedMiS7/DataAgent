@@ -71,6 +71,17 @@ class Settings(BaseSettings):
     # deepseek-chat has 64K.
     schema_token_budget: int = 32000
 
+    # Rerank model for table retrieval. Empty or "off" turns it off; the key falls back
+    # to the embedding key, as both are Bailian keys.
+    rerank_provider: str = "qwen"
+    rerank_endpoint: str = ""
+    rerank_model: str = ""
+    rerank_api_key: str = ""
+    rerank_timeout_seconds: float = 5.0
+    # Tables that go to the rerank model, and how many of them a search keeps.
+    rerank_candidates: int = 20
+    search_top_tables: int = 5
+
     retrieval_top_k: int = 6
     retrieval_min_score: float = 0.35
 

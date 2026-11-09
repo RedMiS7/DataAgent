@@ -68,12 +68,14 @@ def validate_keys(settings: Settings, llm_key: str, embedding_key: str) -> None:
 
 
 def index_is_current(settings: Settings, store: VectorStore, embedder: EmbeddingProvider) -> bool:
-    """Vectors from another embedding model cannot be searched, so they count as stale."""
+    """Vectors from another embedding model cannot be searched, and an index of an older
+    version lacks what retrieval now reads, so both count as stale."""
     collection = settings.collection_name("schema_items")
     if store.count(collection) == 0:
         return False
     hits = store.search(collection, embedder.embed(["索引检查"])[0], 1)
-    return bool(hits) and hits[0].payload.get("model") == embedder.model_name
+    return (bool(hits) and hits[0].payload.get("model") == embedder.model_name
+            and hits[0].payload.get("index_version") == indexer.INDEX_VERSION)
 
 
 def _wait_for(check: Callable[[], bool], seconds: int) -> bool:
@@ -169,6 +171,7 @@ class Bootstrapper:
         # Databases created before call tracing lack this table.
         with app_connection(self.settings) as conn:
             session.ensure_trace_table(conn)
+            repository.ensure_entity_column(conn)
         return "done", ""
 
     def _sync_semantic(self) -> tuple[str, str]:

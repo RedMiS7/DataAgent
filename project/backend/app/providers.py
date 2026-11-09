@@ -32,6 +32,28 @@ EMBEDDING_PRESETS: dict[str, dict[str, object]] = {
 }
 
 
+# Rerank models on Bailian's native API. qwen3-rerank and qwen3.7-text-rerank both
+# answered on this endpoint with the embedding key on 2026-11-09; gte-rerank is retired.
+RERANK_PRESETS: dict[str, dict[str, str]] = {
+    "qwen": {
+        "base_url": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+        "model": "qwen3.7-text-rerank",
+    },
+    "dashscope": {
+        "base_url": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+        "model": "qwen3.7-text-rerank",
+    },
+}
+
+
+def resolve_rerank(provider: str, endpoint: str, model: str) -> tuple[str, str]:
+    preset = RERANK_PRESETS.get(provider.lower(), {})
+    return (
+        endpoint.strip() or preset.get("base_url", ""),
+        model.strip() or preset.get("model", ""),
+    )
+
+
 def resolve_llm(provider: str, endpoint: str, model: str) -> tuple[str, str]:
     preset = LLM_PRESETS.get(provider.lower(), {})
     return (

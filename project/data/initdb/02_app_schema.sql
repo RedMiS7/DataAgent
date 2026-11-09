@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS semantic_schema_items (
     join_hint      VARCHAR(512) NOT NULL DEFAULT '',
     schema_version VARCHAR(32) NOT NULL,
     enabled        TINYINT NOT NULL DEFAULT 1,
+    is_entity      TINYINT NOT NULL DEFAULT 0,
     updated_at     DATETIME NOT NULL,
     UNIQUE KEY uk_schema_item (table_name, column_name)
 ) ENGINE=InnoDB;

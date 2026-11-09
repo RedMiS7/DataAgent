@@ -10,6 +10,7 @@ from app import bootstrap, demo_data
 from app.bootstrap import Bootstrapper, KeyValidationError, index_is_current, validate_keys
 from app.config import Settings, apply_saved_keys, read_saved_keys, save_keys
 from app.embedding.fake import HashEmbedder
+from app.semantic import indexer
 from app.vector.base import VectorHit
 
 
@@ -31,15 +32,18 @@ class StubEmbedder:
 
 
 class StubStore:
-    def __init__(self, count: int = 1, model: str = "real-model") -> None:
+    def __init__(self, count: int = 1, model: str = "real-model",
+                 version: int = indexer.INDEX_VERSION) -> None:
         self.total = count
         self.model = model
+        self.version = version
 
     def count(self, name: str) -> int:
         return self.total
 
     def search(self, name: str, vector: list[float], top_k: int) -> list[VectorHit]:
-        return [VectorHit(id="a", score=1.0, payload={"model": self.model})]
+        return [VectorHit(id="a", score=1.0, payload={"model": self.model,
+                                                      "index_version": self.version})]
 
 
 def run_once(runner: Bootstrapper) -> None:
@@ -62,6 +66,8 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     monkeypatch.setattr(bootstrap, "business_connection", no_connection)
     monkeypatch.setattr(bootstrap.session, "ensure_trace_table",
                         lambda conn: calls["tables"].append("call_traces"))
+    monkeypatch.setattr(bootstrap.repository, "ensure_entity_column",
+                        lambda conn: calls["tables"].append("is_entity"))
     monkeypatch.setattr(bootstrap.repository, "load_seed", lambda path: "seed")
     monkeypatch.setattr(bootstrap.repository, "sync_seed",
                         lambda conn, bundle: calls["sync"].append(bundle))
@@ -154,6 +160,8 @@ def test_index_is_current_checks_count_and_model(tmp_path: Path) -> None:
     assert index_is_current(settings, StubStore(), embedder)  # type: ignore[arg-type]
     assert not index_is_current(settings, StubStore(count=0), embedder)  # type: ignore[arg-type]
     assert not index_is_current(settings, StubStore(model="other"), embedder)  # type: ignore[arg-type]
+    # An index of an older version is rebuilt too.
+    assert not index_is_current(settings, StubStore(version=1), embedder)  # type: ignore[arg-type]
 
 
 def test_missing_vector_store_falls_back_to_keywords(tmp_path: Path, offline: dict,
@@ -207,4 +215,5 @@ def test_bad_key_error_hides_the_key(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_setup_makes_sure_the_trace_table_exists(tmp_path: Path, offline: dict) -> None:
     runner = Bootstrapper(make_settings(tmp_path), StubRetriever())  # type: ignore[arg-type]
     runner._connect_database()
-    assert offline["tables"] == ["call_traces"]
+    # Both before the semantic layer is synced, which writes is_entity.
+    assert offline["tables"] == ["call_traces", "is_entity"]

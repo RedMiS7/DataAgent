@@ -70,6 +70,7 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 添加启动、测试、lint 和评测命令后，要在这里写明实际可运行的命令，不要写未验证的命令。
 
 - 启动全部服务：`cd project && docker compose up -d --build`，然后打开 http://localhost:8000
+- 数据库账号：服务运行时用应用账号 `dataagent_app`（`MYSQL_APP_USER`）读写应用库，用 `shop_ro` 查业务视图；root（`MYSQL_ADMIN_USER`）只给管理命令用。新建的数据库由 `data/initdb/03_grants.sql` 建好应用账号；已有的数据库或改了 `MYSQL_APP_PASSWORD` 后，先用管理账号补一次再重启服务：`cd project && docker compose run --rm --no-deps -T app python -m app.semantic.cli grant_app_user`；DABench 实例用 `docker compose --profile dabench run --rm --no-deps -T app-dabench python -m app.semantic.cli grant_app_user`
 - 后端测试：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m pytest -q`
 - 后端 lint：`cd project && ../.venv/bin/ruff check backend eval data`
 - 前端测试：`cd project/frontend && npm test`

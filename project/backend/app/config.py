@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     mysql_app_db: str = "dataagent"
     mysql_ro_user: str = "shop_ro"
     mysql_ro_password: str = "dataagent_ro_pwd"
+    # The service reads and writes the app database with this account, and fills the
+    # empty shop database with demo orders. It holds no other rights.
+    mysql_app_user: str = "dataagent_app"
+    mysql_app_password: str = "dataagent_app_pwd"
+    # Only for admin commands: import_dataset and grant_app_user. The service never
+    # connects with it.
     mysql_admin_user: str = "root"
     mysql_admin_password: str = "change_me_root"
 
@@ -116,7 +122,7 @@ class Settings(BaseSettings):
 
     @property
     def app_db_url(self) -> URL:
-        return self._url(self.mysql_admin_user, self.mysql_admin_password, self.mysql_app_db)
+        return self._url(self.mysql_app_user, self.mysql_app_password, self.mysql_app_db)
 
     @property
     def admin_server_url(self) -> URL:

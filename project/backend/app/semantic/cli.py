@@ -5,12 +5,14 @@ import sys
 import time
 from pathlib import Path
 
+from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from .. import importer
+from .. import demo_data, importer
 from ..agent import session
 from ..agent.scope_model import build_chat_model, probe_chat_model
 from ..config import get_settings
+from ..db import accounts
 from ..db.engine import app_connection, business_connection
 from ..embedding import build_embedder
 from ..embedding.base import EmbeddingError
@@ -46,7 +48,8 @@ def cmd_import_dataset(manifest_path: str | None) -> int:
         counts = importer.import_dataset(settings, manifest,
                                          settings.data_dir / "initdb" / "02_app_schema.sql",
                                          progress)
-    except importer.DatasetError as exc:
+    except ValueError as exc:
+        # DatasetError, or a bad app account name or empty password.
         print(f"\n导入失败：{exc}", file=sys.stderr)
         return 1
     except SQLAlchemyError as exc:
@@ -55,6 +58,35 @@ def cmd_import_dataset(manifest_path: str | None) -> int:
     print(f"\n导入完成，用时 {time.perf_counter() - started:.0f} 秒：{counts}")
     print(f"原始表在 {manifest.raw_database}，只读账号查 {manifest.database} 的视图，"
           f"应用库是 {manifest.app_database}")
+    return 0
+
+
+def cmd_grant_app_user() -> int:
+    """Create the app account and grant it this instance's databases, as the admin account.
+
+    New databases get the account from data/initdb/03_grants.sql; databases made before
+    it existed, or with another MYSQL_APP_PASSWORD, need this once.
+    """
+    settings = get_settings()
+    demo_database = demo_data.DEMO_DATABASE if settings.generate_demo_data else None
+    engine = create_engine(settings.admin_server_url.render_as_string(hide_password=False))
+    try:
+        with engine.begin() as conn:
+            statements = accounts.ensure_app_user(conn, settings.mysql_app_user,
+                                                  settings.mysql_app_password,
+                                                  settings.mysql_app_db, demo_database)
+    except ValueError as exc:
+        print(f"授权失败：{exc}", file=sys.stderr)
+        return 1
+    except SQLAlchemyError as exc:
+        print(f"授权失败，数据库报错（用的是管理账号 {settings.mysql_admin_user}）："
+              f"{getattr(exc, 'orig', None) or exc}", file=sys.stderr)
+        return 1
+    finally:
+        engine.dispose()
+    print(f"应用账号 {settings.mysql_app_user} 已就绪：")
+    for statement in statements:
+        print(f"  {statement}")
     return 0
 
 
@@ -163,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.semantic.cli")
     parser.add_argument("command",
                         choices=["init_semantic", "build_index", "status", "check_models",
-                                 "show_trace", "import_dataset"])
+                                 "show_trace", "import_dataset", "grant_app_user"])
     parser.add_argument("--log-id", type=int, help="show_trace 要查看的 query_logs id")
     parser.add_argument("--manifest", help="import_dataset 用的数据集清单")
     args = parser.parse_args(argv)
@@ -171,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_show_trace(args.log_id)
     if args.command == "import_dataset":
         return cmd_import_dataset(args.manifest)
+    if args.command == "grant_app_user":
+        return cmd_grant_app_user()
     if args.command == "init_semantic":
         return cmd_init_semantic()
     if args.command == "build_index":

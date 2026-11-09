@@ -36,10 +36,28 @@ def app_connection(settings: Settings) -> Iterator[Connection]:
         yield conn
 
 
-def ping(engine: Engine) -> bool:
+# MySQL refused the account: a wrong user or password (1045), or no rights on the
+# database (1044). Waiting does not fix these.
+ACCESS_DENIED_CODES = {1044, 1045}
+
+
+class DatabaseAccessDenied(RuntimeError):
+    pass
+
+
+def is_access_denied(exc: Exception) -> bool:
+    error = getattr(exc, "orig", None) or exc
+    return bool(error.args) and error.args[0] in ACCESS_DENIED_CODES
+
+
+def ping(engine: Engine, raise_denied: bool = False) -> bool:
+    """Whether the database answers. With ``raise_denied``, a refused account raises
+    DatabaseAccessDenied instead of returning False, so callers can stop waiting."""
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as exc:
+        if raise_denied and is_access_denied(exc):
+            raise DatabaseAccessDenied(str(getattr(exc, "orig", None) or exc)) from exc
         return False

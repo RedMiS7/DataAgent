@@ -64,6 +64,9 @@ LOW_ROI_CHANNEL_ID = 2
 
 BATCH_SIZE = 5000
 
+# The raw database behind the masked `safe` views; demo orders are written here.
+DEMO_DATABASE = "shop"
+
 
 def weighted_choice(rng: random.Random, items: list[tuple[str, str, float]]) -> tuple[str, str, float]:
     total = sum(item[2] for item in items)
@@ -315,9 +318,9 @@ def _connect(settings: Settings) -> pymysql.connections.Connection:
     return pymysql.connect(
         host=settings.mysql_host,
         port=settings.mysql_port,
-        user=settings.mysql_admin_user,
-        password=settings.mysql_admin_password,
-        database="shop",
+        user=settings.mysql_app_user,
+        password=settings.mysql_app_password,
+        database=DEMO_DATABASE,
         charset="utf8mb4",
         autocommit=False,
     )

@@ -12,7 +12,13 @@ from .agent import session
 from .agent.scope_model import build_chat_model, probe_chat_model
 from .api.schemas import SetupStatus, SetupStep
 from .config import Settings
-from .db.engine import app_connection, app_engine, business_connection, ping
+from .db.engine import (
+    DatabaseAccessDenied,
+    app_connection,
+    app_engine,
+    business_connection,
+    ping,
+)
 from .embedding import build_embedder
 from .embedding.base import EmbeddingProvider
 from .semantic import indexer, repository
@@ -166,7 +172,14 @@ class Bootstrapper:
 
     def _connect_database(self) -> tuple[str, str]:
         engine = app_engine(self.settings)
-        if not _wait_for(lambda: ping(engine), DATABASE_WAIT_SECONDS):
+        try:
+            reachable = _wait_for(lambda: ping(engine, raise_denied=True), DATABASE_WAIT_SECONDS)
+        except DatabaseAccessDenied as exc:
+            raise RuntimeError(
+                f"应用账号 {self.settings.mysql_app_user} 登录不了应用库 "
+                f"{self.settings.mysql_app_db}：{exc}。已有的数据库要先用管理账号建好这个账号："
+                "python -m app.semantic.cli grant_app_user") from exc
+        if not reachable:
             raise RuntimeError(f"连不上 MySQL：{self.settings.mysql_host}:{self.settings.mysql_port}")
         # Databases created before call tracing lack this table.
         with app_connection(self.settings) as conn:

@@ -3,7 +3,8 @@
 Each table goes into ``raw_database`` with all of its columns. A view of the same name in
 ``database`` leaves out the ``hidden`` columns, and the read-only account may only read
 those views. ``app_database`` gets the application tables, so the semantic layer of the
-dataset can be synced into it. Running the import again replaces the data.
+dataset can be synced into it, and the app account gets its rights there. Running the
+import again replaces the data. It runs with the admin account.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection
 
 from .config import Settings
+from .db import accounts
 
 NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
 TYPE = re.compile(r"^(?:date|int|bool|varchar\((\d+)\)|decimal\((\d+),(\d+)\))$")
@@ -294,6 +296,9 @@ def import_dataset(settings: Settings, manifest: Manifest, app_schema: Path,
                 conn.execute(text(view_sql(manifest.raw_database, manifest.database, table)))
         with engine.begin() as conn:
             conn.execute(text(f"GRANT SELECT ON `{manifest.database}`.* TO '{reader}'@'%'"))
+            # The instance serving this dataset runs with the app account, not the admin one.
+            accounts.ensure_app_user(conn, settings.mysql_app_user, settings.mysql_app_password,
+                                     manifest.app_database)
             conn.execute(text(f"USE `{manifest.app_database}`"))
             for statement in app_schema_statements(app_schema):
                 conn.execute(text(statement))

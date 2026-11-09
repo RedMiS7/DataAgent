@@ -40,6 +40,9 @@ services:
     environment:
       TZ: Asia/Shanghai
       MYSQL_HOST: mysql
+      # The service runs with the app account; the admin password is only for admin
+      # commands run in this container, such as import_dataset and grant_app_user.
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-dataagent_app_pwd}
       MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-change_me_root}
       QDRANT_URL: http://qdrant:6333
       LOCAL_ENV_FILE: /config/.env.local
@@ -67,6 +70,9 @@ services:
     environment:
       TZ: Asia/Shanghai
       MYSQL_HOST: mysql
+      # The service runs with the app account; the admin password is only for admin
+      # commands run in this container, such as import_dataset and grant_app_user.
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-dataagent_app_pwd}
       MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-change_me_root}
       QDRANT_URL: http://qdrant:6333
       # Keys saved on the web page of the main app are shared.

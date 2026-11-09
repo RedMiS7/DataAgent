@@ -61,7 +61,7 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
         yield None
 
     monkeypatch.setattr(bootstrap, "app_engine", lambda settings: None)
-    monkeypatch.setattr(bootstrap, "ping", lambda engine: True)
+    monkeypatch.setattr(bootstrap, "ping", lambda engine, **kwargs: True)
     monkeypatch.setattr(bootstrap, "app_connection", no_connection)
     monkeypatch.setattr(bootstrap, "business_connection", no_connection)
     monkeypatch.setattr(bootstrap.session, "ensure_trace_table",

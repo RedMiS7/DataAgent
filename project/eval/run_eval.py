@@ -20,6 +20,7 @@ from app.vector import build_vector_store  # noqa: E402
 from eval.retrieval_eval import evaluate_retrieval, print_retrieval  # noqa: E402
 from eval.runner import (  # noqa: E402
     EvalReport,
+    dataset_for,
     evaluate_analysis,
     evaluate_attribution,
     evaluate_questions,
@@ -28,19 +29,51 @@ from eval.runner import (  # noqa: E402
     load_questions,
     load_routing_cases,
     merge_reports,
+    select_cases,
+    summarize_cases,
 )
 
 RESULT_DIR = PROJECT_DIR / "eval" / "results"
 
 
+GROUP_LABELS = {
+    "data": "数据题",
+    "routing": "路由题",
+    "rule": "规则题",
+    "behavior": "行为题（拒答、直接回答、注入）",
+    "fixed_attribution": "固定归因流程",
+}
+
+
 def _print_report(name: str, report: EvalReport) -> None:
-    accuracy = report.passed / report.total * 100 if report.total else 0.0
+    """Each "dataset/kind" group on its own; there is no total over the groups."""
     print(f"\n=== {name} ===")
-    print(f"总计 {report.passed}/{report.total}，准确率 {accuracy:.1f}%")
-    for category, bucket in sorted(report.by_category.items()):
-        rate = bucket["passed"] / bucket["total"] * 100 if bucket["total"] else 0.0
-        print(f"  {category}: {bucket['passed']}/{bucket['total']} ({rate:.1f}%)")
-    metrics = report.as_dict()["metrics"]
+    if not report.cases:
+        print("当前数据集没有这类题")
+    for group, cases in report.groups().items():
+        summary = summarize_cases(cases)
+        dataset, kind = group.split("/", 1)
+        print(f"[{dataset} · {GROUP_LABELS.get(kind, kind)}] "
+              f"{summary['passed']}/{summary['total']}，准确率 {summary['accuracy'] * 100:.1f}%")
+        for category, bucket in sorted(summary["by_category"].items()):
+            rate = bucket["passed"] / bucket["total"] * 100 if bucket["total"] else 0.0
+            print(f"  {category}: {bucket['passed']}/{bucket['total']} ({rate:.1f}%)")
+        _print_metrics(summary["metrics"])
+        failures = [case for case in cases if not case.passed]
+        if failures:
+            print("  未通过：")
+            for case in failures[:20]:
+                hint = f"（{case.failure_hint}）" if case.failure_hint else ""
+                print(f"    - {case.id} [{case.category}] {case.question[:40]} -> {case.detail}{hint}")
+    unscored = report.unscored()
+    if unscored:
+        print("不计分（存疑题，照常运行和记录）：")
+        for case in unscored:
+            print(f"    - {case.id} [{case.category}] {'通过' if case.passed else '未通过'}"
+                  f" -> {case.detail}")
+
+
+def _print_metrics(metrics: dict) -> None:
     if metrics["questions_with_sql"]:
         print(f"  SQL 无报错的题：{metrics['sql_clean_rate'] * 100:.1f}%"
               f"（{metrics['questions_with_sql']} 题执行过 SQL），"
@@ -59,12 +92,6 @@ def _print_report(name: str, report: EvalReport) -> None:
         hints = "，".join(f"{name} {count}" for name, count in
                          sorted(metrics["failure_hints"].items(), key=lambda item: -item[1]))
         print(f"  失败现象：{hints}")
-    failures = [case for case in report.cases if not case.passed]
-    if failures:
-        print("  未通过：")
-        for case in failures[:20]:
-            hint = f"（{case.failure_hint}）" if case.failure_hint else ""
-            print(f"    - {case.id} [{case.category}] {case.question[:40]} -> {case.detail}{hint}")
 
 
 def main() -> int:
@@ -84,6 +111,12 @@ def main() -> int:
     args = parser.parse_args()
 
     settings = get_settings()
+    try:
+        dataset = dataset_for(settings)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print(f"业务库 {settings.mysql_business_db}，只跑数据集 {dataset} 的评测题")
     model = build_chat_model(settings)
     if model is None and args.mode in ("questions", "analysis", "routing", "all"):
         print("未配置大模型，无法运行问数或路由评测。请在 project/.env 填写 LLM_API_KEY。",
@@ -95,7 +128,7 @@ def main() -> int:
     retriever = SemanticRetriever(settings, store, embedder)
     pipeline = AskPipeline(settings, retriever)
 
-    questions = load_questions()
+    questions = select_cases(load_questions(), dataset)
     if args.category:
         questions = [item for item in questions if item["category"] in args.category]
     if args.mode == "retrieval":
@@ -106,6 +139,7 @@ def main() -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps({
             "mode": "retrieval",
+            "dataset": dataset,
             "categories": args.category or [],
             "as_of_date": settings.as_of_date.isoformat(),
             "embedding_model": getattr(embedder, "model_name", ""),
@@ -133,7 +167,8 @@ def main() -> int:
                   f"/{sum(c.output_tokens for c in report.cases) / count:.0f}")
         reports.append(report)
     if args.mode in ("routing", "all"):
-        report = evaluate_routing(settings, load_routing_cases(), args.limit)
+        report = evaluate_routing(settings, select_cases(load_routing_cases(), dataset),
+                                  args.limit)
         _print_report("路由评测", report)
         reports.append(report)
     if args.mode in ("attribution", "all"):
@@ -141,7 +176,7 @@ def main() -> int:
         _print_report("归因评测", report)
         reports.append(report)
     if args.mode in ("security", "all"):
-        report = evaluate_security(settings, pipeline if model else None)
+        report = evaluate_security(settings, pipeline if model else None, dataset)
         _print_report("安全评测", report)
         reports.append(report)
 
@@ -149,6 +184,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps({
         "mode": args.mode,
+        "dataset": dataset,
         "categories": args.category or [],
         "history_sql": not args.no_history_sql,
         "schema_mode": settings.schema_mode,

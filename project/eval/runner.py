@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
 import threading
@@ -35,6 +36,12 @@ class CaseResult:
     category: str
     question: str
     passed: bool
+    # Which dataset the case is about and what it tests; scores are only counted within
+    # one (dataset, kind) group.
+    dataset: str = ""
+    kind: str = ""
+    # False for a suspect case: it runs and is recorded, but counts in no score.
+    scored: bool = True
     status: str = ""
     detail: str = ""
     sql: str = ""
@@ -200,31 +207,85 @@ def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
     }
 
 
+def group_name(case: CaseResult) -> str:
+    return f"{case.dataset}/{case.kind}"
+
+
+def summarize_cases(cases: list[CaseResult]) -> dict[str, Any]:
+    """Accuracy of one group of cases, by category, with the failed ids."""
+    passed = sum(case.passed for case in cases)
+    by_category: dict[str, dict[str, int]] = {}
+    for case in cases:
+        bucket = by_category.setdefault(case.category, {"total": 0, "passed": 0})
+        bucket["total"] += 1
+        bucket["passed"] += case.passed
+    return {
+        "total": len(cases),
+        "passed": passed,
+        "accuracy": round(passed / len(cases), 4) if cases else 0.0,
+        "by_category": by_category,
+        "failed": [case.id for case in cases if not case.passed],
+        "metrics": report_metrics(cases),
+    }
+
+
 @dataclass(slots=True)
 class EvalReport:
-    total: int = 0
-    passed: int = 0
-    by_category: dict[str, dict[str, int]] = field(default_factory=dict)
+    """Cases of one run. There is no total over all cases: cases of different datasets
+    or kinds (data questions, routing, rules) are scored apart."""
+
     cases: list[CaseResult] = field(default_factory=list)
 
     def add(self, result: CaseResult) -> None:
         self.cases.append(result)
-        self.total += 1
-        bucket = self.by_category.setdefault(result.category, {"total": 0, "passed": 0})
-        bucket["total"] += 1
-        if result.passed:
-            self.passed += 1
-            bucket["passed"] += 1
+
+    def groups(self) -> dict[str, list[CaseResult]]:
+        """Scored cases by "dataset/kind"; suspect cases are left out."""
+        grouped: dict[str, list[CaseResult]] = {}
+        for case in self.cases:
+            if case.scored:
+                grouped.setdefault(group_name(case), []).append(case)
+        return grouped
+
+    def unscored(self) -> list[CaseResult]:
+        return [case for case in self.cases if not case.scored]
 
     def as_dict(self) -> dict:
         return {
-            "total": self.total,
-            "passed": self.passed,
-            "accuracy": round(self.passed / self.total, 4) if self.total else 0.0,
-            "by_category": self.by_category,
-            "metrics": report_metrics(self.cases),
+            "groups": {name: summarize_cases(cases) for name, cases in self.groups().items()},
+            "unscored": [case.id for case in self.unscored()],
             "cases": [asdict(case) for case in self.cases],
         }
+
+
+# The business database each dataset's cases are written for.
+DATASET_DATABASES: dict[str, str] = {"ecommerce_demo": "safe", "dabench": "dabench"}
+
+
+def dataset_for(settings: Settings) -> str:
+    """The dataset whose cases fit the business database the settings point to."""
+    for dataset, database in DATASET_DATABASES.items():
+        if database == settings.mysql_business_db:
+            return dataset
+    raise RuntimeError(f"业务库 {settings.mysql_business_db} 没有对应的评测题，"
+                       f"已知的数据集：{DATASET_DATABASES}")
+
+
+def select_cases(cases: list[dict], dataset: str) -> list[dict]:
+    """Cases written for this dataset; a case without a dataset is an error in the file."""
+    missing = [case.get("id", "?") for case in cases if not case.get("dataset")]
+    if missing:
+        raise ValueError(f"这些评测题没有标注 dataset：{missing}")
+    return [case for case in cases if case["dataset"] == dataset]
+
+
+def case_meta(case: dict) -> dict[str, Any]:
+    """The CaseResult fields that come from the case file.
+
+    Case files are checked by select_cases; a case built by hand may leave them out.
+    """
+    return {"dataset": case.get("dataset", ""), "kind": case.get("kind", ""),
+            "scored": (case.get("review") or {}).get("status") != "suspect"}
 
 
 def load_questions(path: Path | None = None) -> list[dict]:
@@ -234,6 +295,39 @@ def load_questions(path: Path | None = None) -> list[dict]:
 
 def load_security_cases(path: Path | None = None) -> dict:
     return json.loads((path or EVAL_DIR / "security_cases.json").read_text(encoding="utf-8"))
+
+
+DABENCH_CATEGORIES = {"归因": "attribution", "自由提问": "open"}
+
+
+def load_dabench_cases(questions_path: Path | None = None,
+                       reviews_path: Path | None = None) -> list[dict]:
+    """DABench questions from DB/DABench.csv, each with its review from dabench_reviews.json.
+
+    Every question must have a review, so a new question is checked before it is scored.
+    """
+    questions_path = questions_path or EVAL_DIR.parent / "DB" / "DABench.csv"
+    reviews_path = reviews_path or EVAL_DIR / "dabench_reviews.json"
+    reviews = {item["query_num"]: item for item in
+               json.loads(reviews_path.read_text(encoding="utf-8"))["reviews"]}
+    with questions_path.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    unreviewed = [row["query_num"] for row in rows if row["query_num"] not in reviews]
+    if unreviewed:
+        raise ValueError(f"这些 DABench 题还没有核对记录：{unreviewed}")
+    return [{
+        "id": f"dab-{row['query_num']}",
+        "category": DABENCH_CATEGORIES[row["query_type"]],
+        "dataset": "dabench",
+        "kind": "data",
+        "mode": "analysis",
+        "question": row["query"],
+        "difficulty": row["difficulty"],
+        "root_cause": row["root_cause_gt"],
+        "strict_root_cause": row["strict_root_cause_gt"],
+        "train_of_thought": row["train_of_thought"],
+        "review": reviews[row["query_num"]],
+    } for row in rows]
 
 
 def _is_number(value: object) -> bool:
@@ -479,6 +573,7 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             if missing:
                 report.add(CaseResult(id=question["id"], category=category,
                                       question=question["question"], passed=False,
+                                      **case_meta(question),
                                       status=answer.status, sql=answer.sql,
                                       detail=f"无法生成参考答案：{missing}",
                                       failure_hint=missing))
@@ -490,7 +585,7 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             except Exception as exc:
                 report.add(CaseResult(id=question["id"], category=category,
                                       question=question["question"], passed=False,
-                                      status=answer.status,
+                                      **case_meta(question), status=answer.status,
                                       detail=f"参考答案执行失败：{exc}"))
                 continue
 
@@ -513,7 +608,8 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
         usage = answer.usage
         report.add(CaseResult(
             id=question["id"], category=category, question=question["question"],
-            passed=passed, status=answer.status, detail=detail, sql=answer.sql,
+            passed=passed, **case_meta(question),
+            status=answer.status, detail=detail, sql=answer.sql,
             expected_rows=len(expected_rows),
             actual_rows=len(actual_rows),
             summary=answer.summary,
@@ -562,7 +658,7 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
             calls = usage.model_calls if usage else 0
             report.add(CaseResult(
                 id=question["id"], category="analysis", question=question["question"],
-                passed=passed, status=answer.status,
+                passed=passed, **case_meta(question), status=answer.status,
                 detail=f"{detail}, {duration_ms}ms, 模型 {calls} 次",
                 duration_ms=duration_ms, summary=answer.summary, model_calls=calls,
                 input_tokens=usage.input_tokens if usage else 0,
@@ -599,7 +695,7 @@ def evaluate_routing(settings: Settings, cases: list[dict],
         report.add(CaseResult(
             id=case["id"], category=case["category"], question=case["question"],
             passed=decision.route == expected and decision.source == "llm",
-            status=decision.source,
+            **case_meta(case), status=decision.source,
             detail=(f"expected={expected}, got={decision.route}, "
                     f"source={decision.source}, reason={decision.reason}"),
         ))
@@ -617,34 +713,39 @@ def evaluate_attribution(settings: Settings, questions: list[dict],
         result = attribute_return_rate(settings, question["question"])
         dimensions = {factor.dimension for factor in result.factors}
         passed = required.issubset(dimensions) and bool(result.summary)
+        # The fixed return-rate attribution is scored apart from the same questions
+        # answered by the pipeline, so one question is not counted twice.
         report.add(CaseResult(
-            id=question["id"], category="attribution", question=question["question"],
-            passed=passed, status="ok",
+            id=f"fa-{question['id']}", category="attribution", question=question["question"],
+            passed=passed, dataset=question["dataset"], kind="fixed_attribution",
+            status="ok",
             detail=f"dimensions={sorted(dimensions)}, factors={len(result.factors)}",
         ))
     return report
 
 
-def evaluate_security(settings: Settings, pipeline: AskPipeline | None) -> EvalReport:
+def evaluate_security(settings: Settings, pipeline: AskPipeline | None,
+                      dataset: str) -> EvalReport:
+    """Security cases written for this dataset; their SQL names its tables."""
     report = EvalReport()
     cases = load_security_cases()
 
     policy = tools.sql_policy(settings)
-    for case in cases["dangerous_sql"]:
+    for case in select_cases(cases["dangerous_sql"], dataset):
         try:
             validate_and_limit(case["sql"], settings.sql_max_rows, policy)
             report.add(CaseResult(id=case["id"], category="dangerous_sql",
-                                  question=case["sql"], passed=False,
+                                  question=case["sql"], passed=False, **case_meta(case),
                                   detail=f"未被拦截（{case['reason']}）"))
         except SQLValidationError as exc:
             report.add(CaseResult(id=case["id"], category="dangerous_sql",
-                                  question=case["sql"], passed=True,
+                                  question=case["sql"], passed=True, **case_meta(case),
                                   detail=str(exc)))
 
     if pipeline is None:
         return report
 
-    for case in cases["prompt_injection"]:
+    for case in select_cases(cases["prompt_injection"], dataset):
         answer = pipeline.ask(case["question"], f"eval-security-{case['id']}")
         expected = set(case["expect_status"])
         if answer.status in expected:
@@ -661,7 +762,7 @@ def evaluate_security(settings: Settings, pipeline: AskPipeline | None) -> EvalR
             passed = answer.status in ("empty", "error") and "SLEEP" not in answer.sql.upper()
             detail = f"status={answer.status}"
         report.add(CaseResult(id=case["id"], category="prompt_injection",
-                              question=case["question"], passed=passed,
+                              question=case["question"], passed=passed, **case_meta(case),
                               status=answer.status, detail=detail, sql=answer.sql))
     return report
 

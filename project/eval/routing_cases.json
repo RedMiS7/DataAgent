@@ -1,127 +1,169 @@
 [
   {
-    "id": "r01",
+    "id": "rt01",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "上个月GMV是多少？",
     "expected_route": "query"
   },
   {
-    "id": "r02",
+    "id": "rt02",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "最近30天销量前10的商品是哪些？",
     "expected_route": "query"
   },
   {
-    "id": "r03",
+    "id": "rt03",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "各渠道上个月的订单数和客单价",
     "expected_route": "query"
   },
   {
-    "id": "r04",
+    "id": "rt04",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "这个月比上个月GMV涨了多少？",
     "expected_route": "query"
   },
   {
-    "id": "r05",
+    "id": "rt05",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "哪个省份的订单最多？",
     "expected_route": "query"
   },
   {
-    "id": "r06",
+    "id": "rt06",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "上周每天的退款金额",
     "expected_route": "query"
   },
   {
-    "id": "r07",
+    "id": "rt07",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "抖音渠道的广告ROI是多少？",
     "expected_route": "query"
   },
   {
-    "id": "r08",
+    "id": "rt08",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "一共有多少个商品在售？",
     "expected_route": "query"
   },
   {
-    "id": "r09",
+    "id": "rt09",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "最近生意怎么样？",
     "expected_route": "analysis"
   },
   {
-    "id": "r10",
+    "id": "rt10",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "为什么上个月退货变多了？",
     "expected_route": "analysis"
   },
   {
-    "id": "r11",
+    "id": "rt11",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "下个月应该重点推哪些商品？",
     "expected_route": "analysis"
   },
   {
-    "id": "r12",
+    "id": "rt12",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "帮我看看广告投放有没有问题",
     "expected_route": "analysis"
   },
   {
-    "id": "r13",
+    "id": "rt13",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "分析一下最近30天的销量，你能得出什么结论？",
     "expected_route": "analysis"
   },
   {
-    "id": "r14",
+    "id": "rt14",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "今天有什么需要我注意的？",
     "expected_route": "analysis"
   },
   {
-    "id": "r15",
+    "id": "rt15",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "GMV下降的原因是什么？",
     "expected_route": "analysis"
   },
   {
-    "id": "r16",
+    "id": "rt16",
     "category": "analysis",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "哪些商品值得加大库存，为什么？",
     "expected_route": "analysis"
   },
   {
-    "id": "r17",
+    "id": "rt17",
     "category": "ambiguous",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "最近退货率高吗？",
     "expected_route": "analysis"
   },
   {
-    "id": "r18",
+    "id": "rt18",
     "category": "ambiguous",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "各类目销量对比",
     "expected_route": "query"
   },
   {
-    "id": "r19",
+    "id": "rt19",
     "category": "ambiguous",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "上个月和上上个月的GMV对比",
     "expected_route": "query"
   },
   {
-    "id": "r20",
+    "id": "rt20",
     "category": "ambiguous",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "帮我总结一下上个月的经营情况",
     "expected_route": "analysis"
   },
   {
-    "id": "r21",
+    "id": "rt21",
     "category": "followup",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "那订单数具体是多少？",
     "expected_route": "query",
     "history": [
@@ -137,8 +179,10 @@
     ]
   },
   {
-    "id": "r22",
+    "id": "rt22",
     "category": "followup",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "为什么比之前低？",
     "expected_route": "analysis",
     "history": [
@@ -154,8 +198,10 @@
     ]
   },
   {
-    "id": "r23",
+    "id": "rt23",
     "category": "followup",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "那上上个月呢？",
     "expected_route": "query",
     "history": [
@@ -171,8 +217,10 @@
     ]
   },
   {
-    "id": "r24",
+    "id": "rt24",
     "category": "followup",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "那换成退货呢？",
     "expected_route": "analysis",
     "history": [
@@ -188,8 +236,10 @@
     ]
   },
   {
-    "id": "r25",
+    "id": "rt25",
     "category": "followup",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "按渠道拆开呢？",
     "expected_route": "query",
     "history": [
@@ -205,8 +255,10 @@
     ]
   },
   {
-    "id": "r26",
+    "id": "rt26",
     "category": "followup",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "第一条建议具体怎么做？",
     "expected_route": "analysis",
     "history": [
@@ -222,32 +274,42 @@
     ]
   },
   {
-    "id": "r27",
+    "id": "rt27",
     "category": "direct",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "GMV包不包括运费？",
     "expected_route": "direct"
   },
   {
-    "id": "r28",
+    "id": "rt28",
     "category": "direct",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "退货率是怎么算的？",
     "expected_route": "direct"
   },
   {
-    "id": "r29",
+    "id": "rt29",
     "category": "direct",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "你能查哪些数据？",
     "expected_route": "direct"
   },
   {
-    "id": "r30",
+    "id": "rt30",
     "category": "direct",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "你好",
     "expected_route": "direct"
   },
   {
-    "id": "r31",
+    "id": "rt31",
     "category": "direct",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "把这个结论写成一段话发给老板",
     "expected_route": "direct",
     "history": [
@@ -263,8 +325,10 @@
     ]
   },
   {
-    "id": "r32",
+    "id": "rt32",
     "category": "direct",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "把上面这段翻译成英文",
     "expected_route": "direct",
     "history": [
@@ -280,8 +344,10 @@
     ]
   },
   {
-    "id": "r33",
+    "id": "rt33",
     "category": "query",
+    "dataset": "ecommerce_demo",
+    "kind": "routing",
     "question": "GMV如果算上运费，上个月是多少？",
     "expected_route": "query"
   }

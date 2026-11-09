@@ -175,7 +175,8 @@ def test_report_metrics_sum_the_cases() -> None:
     report = EvalReport()
     for case in cases:
         report.add(case)
-    assert report.as_dict()["metrics"] == metrics
+    # The cases carry no dataset or kind, so they fall in one group.
+    assert report.as_dict()["groups"]["/"]["metrics"] == metrics
 
 
 class _FakePipeline:
@@ -358,3 +359,118 @@ def test_consistency_cases_are_well_formed() -> None:
         assert all(len(key) == 10 and len(value) == 10
                    for key, value in item["expect_from_previous"].items())
 
+
+
+def _case(case_id: str, category: str, kind: str, passed: bool,
+          dataset: str = "ecommerce_demo", scored: bool = True) -> CaseResult:
+    return CaseResult(id=case_id, category=category, question="q", passed=passed,
+                      dataset=dataset, kind=kind, scored=scored)
+
+
+def test_report_scores_each_dataset_and_kind_apart() -> None:
+    report = EvalReport()
+    for case in [
+        _case("q01", "single_table", "data", True),
+        _case("f01", "followup", "data", False),
+        # Same category name as the data question above, but a routing case.
+        _case("rt21", "followup", "routing", True),
+        _case("s01", "dangerous_sql", "rule", True),
+        _case("dab-48", "attribution", "data", True, dataset="dabench"),
+        _case("dab-101", "attribution", "data", False, dataset="dabench", scored=False),
+    ]:
+        report.add(case)
+
+    payload = report.as_dict()
+    groups = payload["groups"]
+    assert set(groups) == {"ecommerce_demo/data", "ecommerce_demo/routing",
+                           "ecommerce_demo/rule", "dabench/data"}
+    assert "total" not in payload and "accuracy" not in payload
+    data = groups["ecommerce_demo/data"]
+    assert (data["passed"], data["total"], data["accuracy"]) == (1, 2, 0.5)
+    assert data["by_category"]["followup"] == {"total": 1, "passed": 0}
+    assert data["failed"] == ["f01"]
+    assert groups["ecommerce_demo/routing"]["by_category"] == {
+        "followup": {"total": 1, "passed": 1}}
+    # The suspect case runs and is kept, but counts in no group.
+    assert groups["dabench/data"]["total"] == 1
+    assert payload["unscored"] == ["dab-101"]
+    assert [case["id"] for case in payload["cases"]][-1] == "dab-101"
+
+
+def test_cases_are_picked_by_the_business_database() -> None:
+    assert runner.dataset_for(type("S", (), {"mysql_business_db": "safe"})()) == "ecommerce_demo"
+    assert runner.dataset_for(type("S", (), {"mysql_business_db": "dabench"})()) == "dabench"
+    with pytest.raises(RuntimeError, match="other"):
+        runner.dataset_for(type("S", (), {"mysql_business_db": "other"})())
+
+    cases = [{"id": "a", "dataset": "ecommerce_demo"}, {"id": "b", "dataset": "dabench"}]
+    assert [case["id"] for case in runner.select_cases(cases, "dabench")] == ["b"]
+    with pytest.raises(ValueError, match="c"):
+        runner.select_cases([*cases, {"id": "c"}], "dabench")
+
+
+def test_case_meta_leaves_suspect_cases_unscored() -> None:
+    case = {"dataset": "dabench", "kind": "data"}
+    assert runner.case_meta(case) == {"dataset": "dabench", "kind": "data", "scored": True}
+    assert runner.case_meta({**case, "review": {"status": "weak_premise"}})["scored"]
+    assert not runner.case_meta({**case, "review": {"status": "suspect"}})["scored"]
+
+
+KINDS = {"data", "routing", "rule", "behavior"}
+
+
+def test_every_case_has_a_dataset_a_kind_and_a_unique_id() -> None:
+    security = runner.load_security_cases()
+    groups = {
+        "questions": runner.load_questions(),
+        "routing": runner.load_routing_cases(),
+        "dangerous_sql": security["dangerous_sql"],
+        "prompt_injection": security["prompt_injection"],
+        "dabench": runner.load_dabench_cases(),
+    }
+    ids: list[str] = []
+    for name, cases in groups.items():
+        for case in cases:
+            assert case["dataset"] in runner.DATASET_DATABASES, (name, case["id"])
+            assert case["kind"] in KINDS, (name, case["id"])
+            ids.append(case["id"])
+    assert len(ids) == len(set(ids))
+    assert {case["kind"] for case in groups["routing"]} == {"routing"}
+    assert {case["kind"] for case in groups["dangerous_sql"]} == {"rule"}
+    behavior = {case["category"] for case in groups["questions"] if case["kind"] == "behavior"}
+    assert behavior == {"refusal", "direct"}
+
+
+def test_dabench_cases_carry_their_review() -> None:
+    cases = {case["id"]: case for case in runner.load_dabench_cases()}
+    assert len(cases) == 10
+    assert {case["category"] for case in cases.values()} == {"attribution", "open"}
+    assert not runner.case_meta(cases["dab-101"])["scored"]
+    assert cases["dab-73"]["review"]["status"] == "weak_premise"
+    scored = [case for case in cases.values()
+              if case["category"] == "attribution" and runner.case_meta(case)["scored"]]
+    assert sorted(case["id"] for case in scored) == [
+        "dab-105", "dab-107", "dab-48", "dab-50", "dab-58", "dab-71", "dab-73"]
+
+
+def test_dabench_question_without_a_review_is_an_error(tmp_path: Path) -> None:
+    questions = tmp_path / "q.csv"
+    questions.write_text("query_num,query_type,query,root_cause_gt,strict_root_cause_gt,"
+                         "train_of_thought,difficulty\n1,归因,问题,,,,中等\n", encoding="utf-8")
+    reviews = tmp_path / "r.json"
+    reviews.write_text(json.dumps({"reviews": []}), encoding="utf-8")
+    with pytest.raises(ValueError, match="1"):
+        runner.load_dabench_cases(questions, reviews)
+
+
+def test_fixed_attribution_is_scored_apart_from_the_pipeline(monkeypatch) -> None:
+    from types import SimpleNamespace
+    result = SimpleNamespace(summary="ok", factors=[SimpleNamespace(dimension=name) for name in
+                                                    ("product", "channel", "carrier")])
+    monkeypatch.setattr(runner, "attribute_return_rate", lambda settings, question: result)
+    question = {"id": "a01", "category": "attribution", "question": "退货率为什么涨了？",
+                "dataset": "ecommerce_demo", "kind": "data"}
+    report = runner.evaluate_attribution(None, [question])
+    case = report.cases[0]
+    assert (case.id, case.kind, case.passed) == ("fa-a01", "fixed_attribution", True)
+    assert list(report.as_dict()["groups"]) == ["ecommerce_demo/fixed_attribution"]

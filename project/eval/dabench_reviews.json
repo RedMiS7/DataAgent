@@ -1,0 +1,15 @@
+{
+  "description": "DABench 每道题的核对结果。题目原文在 DB/DABench.csv，这里只记录核对结论。status：ok 计分；weak_premise 计分，但只按根因判分；suspect 照常运行和记录，不进任何分数。核对日期 2026-11-09，用 DB/data/ 的原始数据，按题目自己给的定义统计。",
+  "reviews": [
+    {"query_num": "48", "status": "ok", "note": "销售额 111.7 万 → 124.5 万，毛利率 38.6% → 32.3%；1 月没有促销订单，2 月促销销售额 70.3 万"},
+    {"query_num": "50", "status": "ok", "note": "退货率（按件数、按下单月）9.8% → 14.7%；描述与实物不符的退货件数 160 → 694"},
+    {"query_num": "58", "status": "ok", "note": "库存周转率（按件数）2.34 → 1.25；进货增加最多的 5 个产品和标准答案一致"},
+    {"query_num": "71", "status": "ok", "note": "通过贷款的平均利率 9.11% → 8.47%；Business Loan 占比 20.2% → 31.8%"},
+    {"query_num": "73", "status": "weak_premise", "note": "利率 > 12% 的申请只从 237 增加到 248（+4.6%），和其他月份的波动差不多；标准答案的结构变化成立：Personal Loan + Debt Consolidation + Self-Employed 从 1 笔变成 81 笔"},
+    {"query_num": "101", "status": "suspect", "note": "按题目的定义（8 月创建的线索、已交车且没退单），河南 7 月 17 单、8 月 23 单，是上升；改按下定月份统计才是下降（23 → 16）。标准答案的两个原因在数据里成立：试驾 → 下定转化率 71% → 53%，车型D 5 → 2"},
+    {"query_num": "105", "status": "ok", "note": "线索利润 922.8 万 → 897.7 万；Online_AD 线索成本 6.75 万 → 9.02 万，订单利润 163.5 万 → 53.5 万"},
+    {"query_num": "107", "status": "ok", "note": "闪电单 364 → 224；其中 Online_AD 283 → 78"},
+    {"query_num": "74", "status": "ok", "note": "自由提问，没有结论答案，只按分析步骤打分"},
+    {"query_num": "66", "status": "ok", "note": "自由提问，没有结论答案，只按分析步骤打分"}
+  ]
+}

@@ -474,3 +474,67 @@ def test_fixed_attribution_is_scored_apart_from_the_pipeline(monkeypatch) -> Non
     case = report.cases[0]
     assert (case.id, case.kind, case.passed) == ("fa-a01", "fixed_attribution", True)
     assert list(report.as_dict()["groups"]) == ["ecommerce_demo/fixed_attribution"]
+
+
+class _ReferenceConnection:
+    def __init__(self, rows: list[tuple]) -> None:
+        self.rows = rows
+        self.sql: list[str] = []
+
+    def execute(self, statement: Any) -> Any:
+        self.sql.append(str(statement))
+        rows = self.rows
+
+        class _Result:
+            def fetchall(self) -> list[tuple]:
+                return rows
+
+        return _Result()
+
+
+def _reference_settings() -> Any:
+    from app.config import Settings
+    return Settings(_env_file=None, mysql_eval_password="pw")
+
+
+def test_reference_answers_use_the_evaluation_account_and_keep_every_row(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import contextmanager
+    from decimal import Decimal
+    rows = [(f"商品{index}", Decimal("1.50")) for index in range(600)]
+    conn = _ReferenceConnection(rows)
+    used: list[Any] = []
+
+    @contextmanager
+    def connection(settings: Any, database: str | None = None) -> Any:
+        used.append(settings.mysql_eval_user)
+        yield conn
+
+    monkeypatch.setattr(runner, "eval_business_connection", connection)
+    result = runner.execute_reference(_reference_settings(), "SELECT name, price FROM safe.t;")
+    assert used == ["dataagent_eval"]
+    assert conn.sql == ["SELECT name, price FROM safe.t"]
+    # Past the agent's 500-row limit, with values normalized like the agent's.
+    assert len(result) == 600 and result[0] == ["商品0", 1.5]
+
+
+@pytest.mark.parametrize("sql", ["DELETE FROM safe.t", "SELECT 1; SELECT 2",
+                                 "INSERT INTO safe.t VALUES (1)", ""])
+def test_reference_answers_must_be_one_query(monkeypatch: pytest.MonkeyPatch, sql: str) -> None:
+    monkeypatch.setattr(runner, "eval_business_connection",
+                        lambda *args: pytest.fail("must not connect"))
+    with pytest.raises(SQLValidationError):
+        runner.execute_reference(_reference_settings(), sql)
+
+
+def test_reference_answers_may_use_tables_the_agent_may_not() -> None:
+    from app.safety.validator import check_read_only
+    sql = "WITH t AS (SELECT 1 AS a) SELECT a FROM t UNION SELECT 2"
+    assert check_read_only(sql + ";", "mysql") == sql
+
+
+def test_the_evaluation_needs_the_eval_password() -> None:
+    from app.config import Settings
+    problem = runner.eval_account_problem(Settings(_env_file=None))
+    assert "MYSQL_EVAL_PASSWORD" in problem and "grant_eval_user" in problem
+    assert runner.eval_account_problem(_reference_settings()) == ""

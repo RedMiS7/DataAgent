@@ -175,3 +175,132 @@ def test_importing_a_dataset_grants_its_app_database(tmp_path: Path,
     assert len(grants) == 2
     # The account exists before the app tables are made in its database.
     assert conn.sql.index(grants[1]) < conn.sql.index("USE `dataagent_ds`")
+
+
+# The evaluation account: reads a dataset's views and the app database, nothing else.
+
+def test_evaluation_connects_with_its_own_account(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, mysql_eval_user="judge", mysql_eval_password="pw",
+                             mysql_business_db="safe", mysql_app_db="dataagent")
+    assert settings.mysql_eval_password == "pw"
+    own = settings.eval_business_url()
+    assert (own.username, own.password, own.database) == ("judge", "pw", "safe")
+    assert settings.eval_business_url("dabench").database == "dabench"
+    assert (settings.eval_app_url().username, settings.eval_app_url().database) == (
+        "judge", "dataagent")
+    # The agent's queries keep the read-only account.
+    assert settings.business_db_url.username == "shop_ro"
+
+
+def test_the_evaluation_account_has_a_name_but_no_default_password(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    assert settings.mysql_eval_user == "dataagent_eval"
+    assert settings.mysql_eval_password == ""
+
+
+def test_eval_grants_only_read_the_views_and_the_app_database() -> None:
+    assert accounts.eval_grant_statements("judge", "dabench", "dataagent_dabench") == [
+        "GRANT SELECT ON `dabench`.* TO 'judge'@'%'",
+        "GRANT SELECT ON `dataagent_dabench`.* TO 'judge'@'%'"]
+
+
+def test_ensure_eval_user_binds_the_password_and_refuses_an_empty_one() -> None:
+    conn = RecordingConnection()
+    statements = accounts.ensure_eval_user(conn, "judge", "p'w", "safe", "dataagent")  # type: ignore[arg-type]
+    assert conn.sql[0] == "CREATE USER IF NOT EXISTS 'judge'@'%' IDENTIFIED BY :password"
+    assert conn.calls[0][1] == {"password": "p'w"}
+    assert conn.sql[2:] == statements
+    with pytest.raises(ValueError, match="MYSQL_EVAL_PASSWORD"):
+        accounts.ensure_eval_user(RecordingConnection(), "judge", "", "safe", "dataagent")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="只能用小写字母"):
+        accounts.ensure_eval_user(RecordingConnection(), "judge", "pw", "safe`.*", "dataagent")  # type: ignore[arg-type]
+
+
+def test_the_init_script_keeps_no_evaluation_password() -> None:
+    script = (PROJECT_DIR / "data" / "initdb" / "03_grants.sql").read_text(encoding="utf-8")
+    statements = [line for line in script.splitlines() if not line.startswith("--")]
+    assert not any("dataagent_eval" in line for line in statements)
+    assert "grant_eval_user" in script
+
+
+def test_grant_eval_user_grants_this_instance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                              capsys: pytest.CaptureFixture[str]) -> None:
+    conn = RecordingConnection()
+    engine = RecordingEngine(conn)
+    settings = make_settings(tmp_path, mysql_business_db="dabench",
+                             mysql_app_db="dataagent_dabench", mysql_eval_password="secret")
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "create_engine", lambda url: engine)
+    assert cli.main(["grant_eval_user"]) == 0
+    assert [sql for sql in conn.sql if sql.startswith("GRANT")] == [
+        "GRANT SELECT ON `dabench`.* TO 'dataagent_eval'@'%'",
+        "GRANT SELECT ON `dataagent_dabench`.* TO 'dataagent_eval'@'%'"]
+    assert engine.disposed
+    output = capsys.readouterr().out
+    assert "dataagent_eval" in output and "secret" not in output
+
+
+def test_grant_eval_user_without_a_password_says_what_to_set(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    conn = RecordingConnection()
+    monkeypatch.setattr(cli, "get_settings", lambda: make_settings(tmp_path))
+    monkeypatch.setattr(cli, "create_engine", lambda url: RecordingEngine(conn))
+    assert cli.main(["grant_eval_user"]) == 1
+    assert "MYSQL_EVAL_PASSWORD" in capsys.readouterr().err
+    assert conn.sql == []
+
+
+def test_importing_a_dataset_lets_the_evaluation_account_read_it(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = RecordingConnection()
+    monkeypatch.setattr(importer, "create_engine", lambda url: RecordingEngine(conn))
+    manifest = Manifest(raw_database="ds_raw", database="ds", app_database="dataagent_ds",
+                        data_dir=tmp_path, tables=[])
+    importer.import_dataset(make_settings(tmp_path, mysql_eval_password="pw"), manifest,
+                            PROJECT_DIR / "data" / "initdb" / "02_app_schema.sql")
+    grants = [sql for sql in conn.sql if sql.startswith("GRANT")]
+    assert grants[2:] == ["GRANT SELECT ON `ds`.* TO 'dataagent_eval'@'%'",
+                          "GRANT SELECT ON `dataagent_ds`.* TO 'dataagent_eval'@'%'"]
+    # The raw database is never granted to it.
+    assert not any("ds_raw" in grant for grant in grants)
+
+
+class _EngineSpy:
+    """Stands in for engine._engine: records the URL each connection uses."""
+
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+        self.session: list[str] = []
+
+    def __call__(self, url: str) -> Any:
+        self.urls.append(url)
+        spy = self
+
+        class _Conn:
+            def exec_driver_sql(self, sql: str) -> None:
+                spy.session.append(sql)
+
+        class _Engine:
+            @contextmanager
+            def connect(self) -> Any:
+                yield _Conn()
+
+        return _Engine()
+
+
+def test_eval_connections_use_the_evaluation_account_with_a_time_limit(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.db import engine
+    spy = _EngineSpy()
+    monkeypatch.setattr(engine, "_engine", spy)
+    settings = make_settings(tmp_path, mysql_eval_password="pw", sql_timeout_ms=7000)
+    with engine.eval_business_connection(settings, "dabench"):
+        pass
+    with engine.eval_app_connection(settings):
+        pass
+    assert spy.urls[0].startswith("mysql+pymysql://dataagent_eval:pw@")
+    assert "/dabench?" in spy.urls[0]
+    assert spy.urls[1].startswith("mysql+pymysql://dataagent_eval:pw@")
+    assert "/dataagent?" in spy.urls[1]
+    assert spy.session == ["SET SESSION max_execution_time = 7000"]

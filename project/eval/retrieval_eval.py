@@ -18,7 +18,7 @@ from typing import Any
 from app.agent import tools
 from app.agent.pipeline import build_retrieval_query
 from app.config import Settings
-from app.db.engine import app_connection
+from app.db.engine import eval_app_connection
 from app.rerank import Reranker
 from app.semantic import repository
 from app.semantic.retriever import SemanticRetriever
@@ -151,7 +151,8 @@ def evaluate_retrieval(settings: Settings, retriever: SemanticRetriever,
     results: dict[str, list[RetrievalCase]] = {name: [] for name in [*VARIANTS, *SEARCH_VARIANTS]}
     degraded: set[str] = set()
     rerank_notes: set[str] = set()
-    with app_connection(settings) as conn:
+    # Reads the semantic layer with the evaluation account, which may not write.
+    with eval_app_connection(settings) as conn:
         items = repository.fetch_schema_items(conn, enabled_only=False)
         graph = join_graph(items, prefix)
         by_key = {(item.table_name, item.column_name): item for item in items}

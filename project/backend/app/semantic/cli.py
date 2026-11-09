@@ -58,6 +58,12 @@ def cmd_import_dataset(manifest_path: str | None) -> int:
     print(f"\n导入完成，用时 {time.perf_counter() - started:.0f} 秒：{counts}")
     print(f"原始表在 {manifest.raw_database}，只读账号查 {manifest.database} 的视图，"
           f"应用库是 {manifest.app_database}")
+    if settings.mysql_eval_password:
+        print(f"评测账号 {settings.mysql_eval_user} 已授权读 {manifest.database} "
+              f"和 {manifest.app_database}")
+    else:
+        print("没有设置 MYSQL_EVAL_PASSWORD，跳过了评测账号的授权；"
+              "设置后用这个数据集的配置运行 grant_eval_user")
     return 0
 
 
@@ -85,6 +91,32 @@ def cmd_grant_app_user() -> int:
     finally:
         engine.dispose()
     print(f"应用账号 {settings.mysql_app_user} 已就绪：")
+    for statement in statements:
+        print(f"  {statement}")
+    return 0
+
+
+def cmd_grant_eval_user() -> int:
+    """Create the evaluation account and let it read this instance's views and app
+    database, as the admin account. Run once per instance, e.g. again for DABench."""
+    settings = get_settings()
+    engine = create_engine(settings.admin_server_url.render_as_string(hide_password=False))
+    try:
+        with engine.begin() as conn:
+            statements = accounts.ensure_eval_user(conn, settings.mysql_eval_user,
+                                                   settings.mysql_eval_password,
+                                                   settings.mysql_business_db,
+                                                   settings.mysql_app_db)
+    except ValueError as exc:
+        print(f"授权失败：{exc}", file=sys.stderr)
+        return 1
+    except SQLAlchemyError as exc:
+        print(f"授权失败，数据库报错（用的是管理账号 {settings.mysql_admin_user}）："
+              f"{getattr(exc, 'orig', None) or exc}", file=sys.stderr)
+        return 1
+    finally:
+        engine.dispose()
+    print(f"评测账号 {settings.mysql_eval_user} 已就绪：")
     for statement in statements:
         print(f"  {statement}")
     return 0
@@ -249,7 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.semantic.cli")
     parser.add_argument("command",
                         choices=["init_semantic", "build_index", "status", "check_models",
-                                 "show_trace", "import_dataset", "grant_app_user"])
+                                 "show_trace", "import_dataset", "grant_app_user",
+                                 "grant_eval_user"])
     parser.add_argument("--log-id", type=int, help="show_trace 要查看的 query_logs id")
     parser.add_argument("--manifest", help="import_dataset 用的数据集清单")
     args = parser.parse_args(argv)
@@ -259,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_import_dataset(args.manifest)
     if args.command == "grant_app_user":
         return cmd_grant_app_user()
+    if args.command == "grant_eval_user":
+        return cmd_grant_eval_user()
     if args.command == "init_semantic":
         return cmd_init_semantic()
     if args.command == "build_index":

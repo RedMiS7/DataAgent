@@ -29,7 +29,7 @@ class ExecutionResult:
     sql: str = ""
 
 
-def _normalize(value: Any) -> Any:
+def normalize_value(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, (datetime, date)):
@@ -50,7 +50,7 @@ def execute_sql(settings: Settings, safe_sql: SafeSQL) -> ExecutionResult:
         raise SQLExecutionError(f"SQL 执行失败：{exc}", safe_sql.sql) from exc
 
     truncated = len(fetched) > settings.sql_max_rows
-    rows = [[_normalize(value) for value in row] for row in fetched[:settings.sql_max_rows]]
+    rows = [[normalize_value(value) for value in row] for row in fetched[:settings.sql_max_rows]]
     duration_ms = int((time.perf_counter() - started) * 1000)
     return ExecutionResult(columns=columns, rows=rows, truncated=truncated,
                            duration_ms=duration_ms, sql=safe_sql.sql)

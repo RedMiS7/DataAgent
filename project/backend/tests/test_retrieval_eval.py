@@ -137,7 +137,7 @@ class _Searcher:
 
 
 def test_evaluate_retrieval_scores_every_variant(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(retrieval_eval, "app_connection", lambda settings: _Connection())
+    monkeypatch.setattr(retrieval_eval, "eval_app_connection", lambda settings: _Connection())
     monkeypatch.setattr(retrieval_eval, "SemanticRetriever", lambda *args: _Retriever())
     monkeypatch.setattr(retrieval_eval, "TableSearcher", _Searcher)
     monkeypatch.setattr(tools, "table_columns",

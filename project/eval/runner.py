@@ -20,8 +20,10 @@ from app.agent.scope_model import build_chat_model
 from app.analysis import attribute_return_rate
 from app.api.schemas import AnswerPayload, HistoryMessage, HistoryQuery
 from app.config import Settings
-from app.nl2sql.executor import SQLExecutionError, execute_sql
-from app.safety.validator import SQLValidationError, validate_and_limit
+from app.db.engine import eval_business_connection
+from app.nl2sql.executor import SQLExecutionError, normalize_value
+from app.safety.validator import SQLValidationError, check_read_only, validate_and_limit
+from sqlalchemy import text
 
 EVAL_DIR = Path(__file__).resolve().parent
 
@@ -397,8 +399,23 @@ def _row_contains(row: list, values: list) -> bool:
 
 
 def execute_reference(settings: Settings, sql: str) -> list[list]:
-    safe = validate_and_limit(sql, settings.sql_max_rows, tools.sql_policy(settings))
-    return execute_sql(settings, safe).rows
+    """Every row of a reference answer, read with the evaluation account.
+
+    Only the statement type is checked: the agent's table and row limits are for SQL a
+    model wrote, and a reference cut at 500 rows would score a full answer wrong.
+    """
+    cleaned = check_read_only(sql, settings.sql_dialect)
+    with eval_business_connection(settings) as conn:
+        rows = conn.execute(text(cleaned)).fetchall()
+    return [[normalize_value(value) for value in row] for row in rows]
+
+
+def eval_account_problem(settings: Settings) -> str:
+    """Why the evaluation account cannot be used, or "" when it is set."""
+    if settings.mysql_eval_password:
+        return ""
+    return (f"没有设置评测账号 {settings.mysql_eval_user} 的密码。请在 project/.env 设置 "
+            "MYSQL_EVAL_PASSWORD，再用管理账号运行一次：python -m app.semantic.cli grant_eval_user")
 
 
 def history_from_questions(history: list[str]) -> list[HistoryMessage]:

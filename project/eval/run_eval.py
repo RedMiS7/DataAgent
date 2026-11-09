@@ -21,6 +21,7 @@ from eval.retrieval_eval import evaluate_retrieval, print_retrieval  # noqa: E40
 from eval.runner import (  # noqa: E402
     EvalReport,
     dataset_for,
+    eval_account_problem,
     evaluate_analysis,
     evaluate_attribution,
     evaluate_questions,
@@ -117,6 +118,11 @@ def main() -> int:
         print(exc, file=sys.stderr)
         return 1
     print(f"业务库 {settings.mysql_business_db}，只跑数据集 {dataset} 的评测题")
+    # Reference answers and the semantic layer are read with the evaluation account.
+    problem = eval_account_problem(settings)
+    if problem and args.mode in ("questions", "retrieval", "all"):
+        print(problem, file=sys.stderr)
+        return 1
     model = build_chat_model(settings)
     if model is None and args.mode in ("questions", "analysis", "routing", "all"):
         print("未配置大模型，无法运行问数或路由评测。请在 project/.env 填写 LLM_API_KEY。",

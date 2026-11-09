@@ -36,6 +36,23 @@ def app_connection(settings: Settings) -> Iterator[Connection]:
         yield conn
 
 
+@contextmanager
+def eval_business_connection(settings: Settings,
+                             database: str | None = None) -> Iterator[Connection]:
+    """The evaluation account on a view database, with the same time limit as the agent."""
+    url = settings.eval_business_url(database).render_as_string(hide_password=False)
+    with _engine(url).connect() as conn:
+        conn.exec_driver_sql(f"SET SESSION max_execution_time = {int(settings.sql_timeout_ms)}")
+        yield conn
+
+
+@contextmanager
+def eval_app_connection(settings: Settings) -> Iterator[Connection]:
+    """The evaluation account on the app database; it may only read."""
+    with _engine(settings.eval_app_url().render_as_string(hide_password=False)).connect() as conn:
+        yield conn
+
+
 # MySQL refused the account: a wrong user or password (1045), or no rights on the
 # database (1044). Waiting does not fix these.
 ACCESS_DENIED_CODES = {1044, 1045}

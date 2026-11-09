@@ -41,8 +41,13 @@ class Settings(BaseSettings):
     # empty shop database with demo orders. It holds no other rights.
     mysql_app_user: str = "dataagent_app"
     mysql_app_password: str = "dataagent_app_pwd"
-    # Only for admin commands: import_dataset and grant_app_user. The service never
-    # connects with it.
+    # Evaluation runs the reference SQL and reads the logs with this account: read-only
+    # on the views and the app database. No default password: grant_eval_user creates
+    # the account with the one set in .env.
+    mysql_eval_user: str = "dataagent_eval"
+    mysql_eval_password: str = ""
+    # Only for admin commands: import_dataset, grant_app_user and grant_eval_user. The
+    # service never connects with it.
     mysql_admin_user: str = "root"
     mysql_admin_password: str = "change_me_root"
 
@@ -123,6 +128,14 @@ class Settings(BaseSettings):
     @property
     def app_db_url(self) -> URL:
         return self._url(self.mysql_app_user, self.mysql_app_password, self.mysql_app_db)
+
+    def eval_business_url(self, database: str | None = None) -> URL:
+        """The evaluation account on a view database, the instance's own by default."""
+        return self._url(self.mysql_eval_user, self.mysql_eval_password,
+                         database or self.mysql_business_db)
+
+    def eval_app_url(self) -> URL:
+        return self._url(self.mysql_eval_user, self.mysql_eval_password, self.mysql_app_db)
 
     @property
     def admin_server_url(self) -> URL:

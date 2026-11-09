@@ -71,6 +71,7 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 
 - 启动全部服务：`cd project && docker compose up -d --build`，然后打开 http://localhost:8000
 - 数据库账号：服务运行时用应用账号 `dataagent_app`（`MYSQL_APP_USER`）读写应用库，用 `shop_ro` 查业务视图；root（`MYSQL_ADMIN_USER`）只给管理命令用。新建的数据库由 `data/initdb/03_grants.sql` 建好应用账号；已有的数据库或改了 `MYSQL_APP_PASSWORD` 后，先用管理账号补一次再重启服务：`cd project && docker compose run --rm --no-deps -T app python -m app.semantic.cli grant_app_user`；DABench 实例用 `docker compose --profile dabench run --rm --no-deps -T app-dabench python -m app.semantic.cli grant_app_user`
+- 评测账号：评测执行参考 SQL、读语义层用 `dataagent_eval`（`MYSQL_EVAL_USER`），只能读视图库和应用库，不能读原始库、不能写。密码只写在 `project/.env` 的 `MYSQL_EVAL_PASSWORD`，没有默认值，没设时 `--mode questions/retrieval/all` 直接退出。设好后用管理账号给每个实例授权一次：`cd project && docker compose run --rm --no-deps -T -v "$PWD":/work -w /work/backend app python -m app.semantic.cli grant_eval_user`；DABench 实例用 `docker compose --profile dabench run --rm --no-deps -T -v "$PWD":/work -w /work/backend app-dabench python -m app.semantic.cli grant_eval_user`
 - 后端测试：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m pytest -q`
 - 后端 lint：`cd project && ../.venv/bin/ruff check backend eval data`
 - 前端测试：`cd project/frontend && npm test`

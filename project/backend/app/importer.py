@@ -299,6 +299,12 @@ def import_dataset(settings: Settings, manifest: Manifest, app_schema: Path,
             # The instance serving this dataset runs with the app account, not the admin one.
             accounts.ensure_app_user(conn, settings.mysql_app_user, settings.mysql_app_password,
                                      manifest.app_database)
+            # Evaluation reads this dataset with its own account; skipped until it has a
+            # password, and grant_eval_user does it later.
+            if settings.mysql_eval_password:
+                accounts.ensure_eval_user(conn, settings.mysql_eval_user,
+                                          settings.mysql_eval_password, manifest.database,
+                                          manifest.app_database)
             conn.execute(text(f"USE `{manifest.app_database}`"))
             for statement in app_schema_statements(app_schema):
                 conn.execute(text(statement))

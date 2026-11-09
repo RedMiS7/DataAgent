@@ -17,3 +17,8 @@ ALTER USER 'dataagent_app'@'%' IDENTIFIED BY 'dataagent_app_pwd';
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX ON dataagent.* TO 'dataagent_app'@'%';
 GRANT SELECT, INSERT ON shop.* TO 'dataagent_app'@'%';
 FLUSH PRIVILEGES;
+
+-- The evaluation account (MYSQL_EVAL_USER, default dataagent_eval) is not made here:
+-- its password lives only in .env. With MYSQL_EVAL_PASSWORD set, the admin account
+-- creates it and lets it read this instance's views and app database with:
+--   python -m app.semantic.cli grant_eval_user

@@ -1,9 +1,12 @@
-"""The MySQL account the service runs with.
+"""The MySQL accounts the service and the evaluation run with.
 
 The service reads and writes its app database with ``MYSQL_APP_USER``. It may create
 tables and add columns there, as start-up adds the ones older databases lack, but it
 cannot drop tables or grant rights. When demo data is on, it may also read and insert
-into the raw shop database. Admin commands create the account with ``MYSQL_ADMIN_USER``.
+into the raw shop database.
+
+The evaluation uses ``MYSQL_EVAL_USER``: it may only read a dataset's views and the app
+database, never the raw database. Admin commands create both with ``MYSQL_ADMIN_USER``.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 APP_DATABASE_RIGHTS = "SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX"
 DEMO_DATABASE_RIGHTS = "SELECT, INSERT"
+EVAL_RIGHTS = "SELECT"
 
 
 def checked_name(value: str, what: str) -> str:
@@ -36,6 +40,26 @@ def grant_statements(user: str, app_database: str, demo_database: str | None) ->
     return statements
 
 
+def eval_grant_statements(user: str, view_database: str, app_database: str) -> list[str]:
+    user = checked_name(user, "评测账号名")
+    return [f"GRANT {EVAL_RIGHTS} ON `{checked_name(view_database, '视图库名')}`.* "
+            f"TO '{user}'@'%'",
+            f"GRANT {EVAL_RIGHTS} ON `{checked_name(app_database, '应用库名')}`.* "
+            f"TO '{user}'@'%'"]
+
+
+def _ensure_user(conn: Connection, name: str, password: str,
+                 statements: list[str]) -> list[str]:
+    # The password is a bound value: the driver quotes it, so any character is safe.
+    conn.execute(text(f"CREATE USER IF NOT EXISTS '{name}'@'%' IDENTIFIED BY :password"),
+                 {"password": password})
+    conn.execute(text(f"ALTER USER '{name}'@'%' IDENTIFIED BY :password"),
+                 {"password": password})
+    for statement in statements:
+        conn.execute(text(statement))
+    return statements
+
+
 def ensure_app_user(conn: Connection, user: str, password: str, app_database: str,
                     demo_database: str | None = None) -> list[str]:
     """Create the account or reset its password, then grant its rights. Safe to repeat.
@@ -45,12 +69,19 @@ def ensure_app_user(conn: Connection, user: str, password: str, app_database: st
     if not password:
         raise ValueError("应用账号的密码为空，请设置 MYSQL_APP_PASSWORD")
     name = checked_name(user, "应用账号名")
-    # The password is a bound value: the driver quotes it, so any character is safe.
-    conn.execute(text(f"CREATE USER IF NOT EXISTS '{name}'@'%' IDENTIFIED BY :password"),
-                 {"password": password})
-    conn.execute(text(f"ALTER USER '{name}'@'%' IDENTIFIED BY :password"),
-                 {"password": password})
-    statements = grant_statements(name, app_database, demo_database)
-    for statement in statements:
-        conn.execute(text(statement))
-    return statements
+    return _ensure_user(conn, name, password, grant_statements(name, app_database,
+                                                               demo_database))
+
+
+def ensure_eval_user(conn: Connection, user: str, password: str, view_database: str,
+                     app_database: str) -> list[str]:
+    """Create the evaluation account or reset its password, then let it read one
+    dataset's views and its app database. Safe to repeat; run once per dataset.
+
+    Runs on a connection of the admin account. Returns the GRANT statements it ran.
+    """
+    if not password:
+        raise ValueError("评测账号的密码为空，请在 .env 设置 MYSQL_EVAL_PASSWORD")
+    name = checked_name(user, "评测账号名")
+    return _ensure_user(conn, name, password,
+                        eval_grant_statements(name, view_database, app_database))

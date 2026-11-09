@@ -230,6 +230,25 @@ def _existing_limit(statement: exp.Expression) -> int | None:
     return None
 
 
+def check_read_only(sql: str, dialect: str) -> str:
+    """Check that ``sql`` is one query and return it without its trailing semicolon.
+
+    For SQL written by people, such as an evaluation's reference answers: no table,
+    column or row limits, only the statement type.
+    """
+    cleaned = sql.strip().rstrip(";").strip()
+    if not cleaned:
+        _reject("SQL 为空")
+    try:
+        statements = [item for item in sqlglot.parse(cleaned, read=dialect) if item is not None]
+    except sqlglot.errors.ParseError as exc:
+        raise SQLValidationError(f"SQL 无法解析：{exc}") from exc
+    if len(statements) != 1:
+        _reject("只允许执行单条查询")
+    _check_statement_type(statements[0])
+    return cleaned
+
+
 def validate_and_limit(sql: str, max_rows: int, policy: SQLPolicy) -> SafeSQL:
     """Check that ``sql`` is one safe read of the allowed tables, and that every column
     exists when the policy knows the columns."""

@@ -67,6 +67,7 @@ from .failure import (
 from .planner import STEP_ANSWER_RULE, AnalysisTask, PlanStep, run_analysis
 from .router import route_question
 from .scope_model import build_chat_model
+from .session import LogSource, QueryRecord
 from .tools import (
     ANALYSIS_MAX_QUERIES,
     AgentRunContext,
@@ -326,9 +327,12 @@ def _history_messages(history: list[tuple[str, str]]) -> list[Msg]:
 
 
 class AskPipeline:
-    def __init__(self, settings: Settings, retriever: SemanticRetriever) -> None:
+    def __init__(self, settings: Settings, retriever: SemanticRetriever,
+                 source: LogSource = "web") -> None:
         self.settings = settings
         self.retriever = retriever
+        # Where the questions come from, so evaluation runs can be told apart in the logs.
+        self.source = source
 
     def ask(self, question: str, session_id: str = "default",
             emit: EventHandler | None = None, mode: RequestMode = "query",
@@ -424,7 +428,7 @@ class AskPipeline:
                 if text.strip() and NEED_DATA not in text:
                     return self._text_answer(conn, emit, session_id, question, rewritten,
                                              time_range, bundle, client_history, text, trace, mode,
-                                             route)
+                                             route, context.query_records)
                 logger.info("[%s] 直接回答时发现需要查数，改用查询模式 reply=%r", tag, text)
                 route = route.model_copy(update={
                     "chosen": "query", "reason": f"{route.reason}；回答时发现需要查数".lstrip("；")})
@@ -481,14 +485,15 @@ class AskPipeline:
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
                                       None, time_range, bundle, context.attempts, "refused",
                                       context.declined, "", trace, mode=mode,
-                                      route=route)
+                                      route=route, queries=context.query_records)
 
             execution = select_execution(context.executions, text)
             if execution is None and not context.errors and text.strip() \
                     and NEED_DATA not in text:
                 # The model judged that no data was needed, e.g. for a metric definition.
                 return self._text_answer(conn, emit, session_id, question, rewritten,
-                                         time_range, bundle, client_history, text, trace, mode, route)
+                                         time_range, bundle, client_history, text, trace, mode,
+                                         route, context.query_records)
             if execution is None:
                 failure = (sql_failure(context.attempts, context.errors[-1]) if context.errors
                            else no_answer_failure())
@@ -505,7 +510,7 @@ class AskPipeline:
             return self._finalize(conn, emit, session_id, question, rewritten,
                                   execution.sql, execution, time_range, bundle,
                                   context.attempts, status, summary, "", trace,
-                                  summary_source, route=route)
+                                  summary_source, route=route, queries=context.query_records)
 
     def _refusal(self, question: str) -> str:
         if any(term in question for term in SENSITIVE_TERMS):
@@ -610,7 +615,8 @@ class AskPipeline:
     def _text_answer(self, conn, emit: EventHandler, session_id: str, question: str,
                      rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
                      history: list[HistoryMessage], text: str, trace: CallTrace,
-                     mode: AskMode, route: RouteInfo | None) -> AnswerPayload:
+                     mode: AskMode, route: RouteInfo | None,
+                     queries: list[QueryRecord] | None = None) -> AnswerPayload:
         """An answer without SQL. Its figures must come from the conversation or the
         knowledge base; others are flagged. The SQL of earlier replies does not count:
         a LIMIT or a date in it is no source for a figure."""
@@ -623,7 +629,7 @@ class AskPipeline:
                            session.log_tag(session_id), missing)
         return self._finalize(conn, emit, session_id, question, rewritten, "", None,
                               time_range, bundle, 0, "text", text.strip(), "", trace, "model",
-                              mode=mode, warnings=warnings, route=route)
+                              mode=mode, warnings=warnings, route=route, queries=queries)
 
     def _analysis_task(self, question: str, history: list[HistoryMessage],
                        bundle: RetrievalBundle, time_range: TimeRange,
@@ -686,7 +692,8 @@ class AskPipeline:
                               time_range, bundle, context.attempts, status, summary,
                               failure.message if failure else "", context.trace,
                               source, mode="analysis", results=results, warnings=warnings,
-                              route=route, plan=plan, failure=failure)
+                              route=route, plan=plan, failure=failure,
+                              queries=context.query_records)
 
     def _degrade(self, conn, emit: EventHandler, session_id: str, question: str,
                  rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
@@ -704,7 +711,7 @@ class AskPipeline:
                                   context.failed_sql, None, time_range, bundle,
                                   context.attempts, "error", "", failure.message,
                                   context.trace, mode=mode, route=route, plan=plan,
-                                  failure=failure)
+                                  failure=failure, queries=context.query_records)
 
         if mode == "analysis":
             primary = next((execution for execution in executions if execution.rows),
@@ -717,7 +724,7 @@ class AskPipeline:
                               time_range, bundle, context.attempts, "partial",
                               template_summary(primary.columns, primary.rows), failure.message,
                               context.trace, mode=mode, results=results, route=route,
-                              plan=plan, failure=failure)
+                              plan=plan, failure=failure, queries=context.query_records)
 
     def _finalize(self, conn, emit: EventHandler, session_id: str, question: str,
                   rewritten: str, sql_text: str, result: ExecutionResult | None,
@@ -728,7 +735,8 @@ class AskPipeline:
                   warnings: list[str] | None = None,
                   route: RouteInfo | None = None,
                   plan: list[PlanStepInfo] | None = None,
-                  failure: Failure | None = None) -> AnswerPayload:
+                  failure: Failure | None = None,
+                  queries: list[QueryRecord] | None = None) -> AnswerPayload:
         duration_ms = int((time.perf_counter() - trace.started) * 1000)
         results = results or []
         warnings = list(warnings or [])
@@ -758,8 +766,11 @@ class AskPipeline:
         log_id = session.save_query_log(
             conn, session_id, question, rewritten, log_sql, status, retries, duration_ms,
             len(result.rows) if result else 0, self.settings.llm_model,
-            trace.input_tokens, trace.output_tokens, error)
+            trace.input_tokens, trace.output_tokens, error, summary=summary,
+            summary_source=summary_source if summary else "", warnings=warnings,
+            source=self.source)
         session.save_call_traces(conn, log_id, trace.ordered())
+        session.save_query_executions(conn, log_id, queries or [])
 
         payload = AnswerPayload(
             question=question,

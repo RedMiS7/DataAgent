@@ -77,7 +77,7 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 - 前端构建：`cd project/frontend && npm run build`
 - 模型连通检查：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli check_models`
 - 重建向量索引：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli build_index`
-- 查看一次问答的模型和工具调用：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli show_trace --log-id <query_logs 的 id>`
+- 查看一次问答的结论、每条查询（含被拦下和失败的）、模型和工具调用：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli show_trace --log-id <query_logs 的 id>`
 - 评测：`cd project && ../.venv/bin/python eval/run_eval.py --mode all`，默认覆盖 `eval/results/latest.json`，可用 `--output` 改路径。按 `MYSQL_BUSINESS_DB` 只跑对应数据集的题，分数按"数据集/题型"分组，没有总分；`review.status=suspect` 的题照常运行但不计分
 - 路由评测（只测自动模式的判断，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode routing --output <路径>`
 - 分析评测（只跑分析题，统计维度覆盖和耗时，需要大模型）：`cd project && ../.venv/bin/python eval/run_eval.py --mode analysis --output <路径>`；加 `--no-plan` 用原来的单 Agent 流程对比

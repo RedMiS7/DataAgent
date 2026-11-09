@@ -195,22 +195,32 @@ def ask(monkeypatch: pytest.MonkeyPatch):
         key = next(day for day in rows if day in safe.sql)
         return result(safe.sql, rows[key])
 
+    saved: dict[str, Any] = {}
+
+    def save_log(conn: object, *args: Any, **kwargs: Any) -> int:
+        saved["log"] = kwargs
+        return 1
+
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
-    monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
+    monkeypatch.setattr(session, "save_query_log", save_log)
     monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
+    monkeypatch.setattr(session, "save_query_executions",
+                        lambda conn, log_id, records: saved.__setitem__("queries", records))
 
     def run(question: str, script: list[list[Any]], mode: str = "query",
             history: list[HistoryMessage] | None = None, emit: Any = None,
-            route: list[Any] | None = None):
+            route: list[Any] | None = None, source: str = "web"):
         # The first model built goes to the agent, the second to the router.
         models = iter([ScriptedChatModel(script), ScriptedChatModel([route or []])])
         monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: next(models))
         settings = Settings(_env_file=None, as_of_date=AS_OF)
-        return AskPipeline(settings, StubRetriever()).ask(  # type: ignore[arg-type]
+        return AskPipeline(settings, StubRetriever(), source).ask(  # type: ignore[arg-type]
             question, "test", emit, mode,  # type: ignore[arg-type]
             CLIENT_HISTORY if history is None else history)
 
+    # What would be stored for the last question: the log fields and every query.
+    run.saved = saved  # type: ignore[attr-defined]
     return run
 
 
@@ -232,6 +242,32 @@ def test_extra_query_does_not_replace_the_answer(ask) -> None:
     assert answer.summary_source == "model"
     assert answer.warnings == []
     assert answer.retries == 2
+
+
+def test_query_mode_archives_the_conclusion_and_every_query(ask) -> None:
+    answer = ask("上个月卖得最好的商品是哪些", [
+        [call("run_sql", sql="DELETE FROM safe.products", purpose="删数据")],
+        [call("run_sql", sql=SEPTEMBER_SQL, purpose="上月销量")],
+        [TextBlock(text="上个月销量最高的是童装热销款208号，176件。")],
+    ])
+    log = ask.saved["log"]
+    assert log["summary"] == answer.summary != ""
+    assert log["summary_source"] == answer.summary_source == "model"
+    assert log["warnings"] == answer.warnings
+    assert log["source"] == "web"
+    blocked, ran = ask.saved["queries"]
+    assert (blocked.status, blocked.query_no, blocked.purpose) == ("blocked", None, "删数据")
+    assert blocked.error and blocked.columns == [] and blocked.sql == "DELETE FROM safe.products"
+    assert (ran.status, ran.query_no, ran.purpose, ran.row_count) == ("ok", 1, "上月销量", 1)
+    assert ran.columns == ["name", "qty"] and ran.rows == [["童装热销款208号", 176]]
+
+
+def test_evaluation_questions_are_marked_in_the_log(ask) -> None:
+    ask("上个月卖得最好的商品是哪些", [
+        [call("run_sql", sql=SEPTEMBER_SQL)],
+        [TextBlock(text="上个月销量最高的是童装热销款208号，176件。")],
+    ], source="eval")
+    assert ask.saved["log"]["source"] == "eval"
 
 
 def test_model_only_sees_the_current_question(ask, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -344,14 +380,17 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
         return ExecutionResult(columns=["本期GMV"], rows=[[9665990.5]], sql=safe.sql)
 
     def save_log(conn: object, session_id: str, question: str, rewritten: str, sql: str,
-                 *rest: Any) -> int:
+                 *rest: Any, **kwargs: Any) -> int:
         saved["log_sql"] = sql
+        saved["log"] = kwargs
         return 1
 
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
     monkeypatch.setattr(session, "save_query_log", save_log)
     monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
+    monkeypatch.setattr(session, "save_query_executions",
+                        lambda conn, log_id, records: saved.__setitem__("queries", records))
 
     def run(script: list[list[Any]], mode: str = "analysis"):
         # The planner reads the first reply; an unreadable plan runs the single agent.
@@ -399,6 +438,22 @@ def test_analysis_keeps_the_conclusion_and_flags_unknown_numbers(analyze) -> Non
     assert answer.summary == text
     assert answer.summary_source == "model"
     assert answer.warnings == ["这些数字未能在查询结果中核对：6.3%"]
+
+
+def test_analysis_archives_its_conclusion_warnings_and_numbered_queries(analyze) -> None:
+    text = "整体增长。\n- GMV 966.6 万，增长 6.3% [查询1]"
+    answer, saved = analyze([
+        [call("run_sql", sql=OVERALL_SQL, purpose="整体")],
+        [call("run_sql", sql=CATEGORY_SQL, purpose="类目拆分")],
+        [TextBlock(text=text)],
+    ])
+    assert saved["log"]["summary"] == answer.summary == text
+    assert saved["log"]["summary_source"] == "model"
+    assert saved["log"]["warnings"] == answer.warnings != []
+    # Uncited queries are archived too: the reviewer sees the model's dead ends.
+    assert [(item.query_no, item.purpose, item.status) for item in saved["queries"]] == [
+        (1, "整体", "ok"), (2, "类目拆分", "ok")]
+    assert saved["queries"][1].rows == [["鞋靴", 200], ["童装", 150]]
 
 
 def test_analysis_keeps_sql_out_of_the_query_log(analyze) -> None:

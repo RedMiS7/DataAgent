@@ -65,8 +65,9 @@ def ask(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
-    monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
+    monkeypatch.setattr(session, "save_query_log", lambda *args, **kwargs: 1)
     monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
+    monkeypatch.setattr(session, "save_query_executions", lambda *args: None)
 
     def run(question: str, *, agent: list[Any], router_reply: list[Any] | None = None,
             direct: list[Any] | None = None, mode: str = "auto",

@@ -124,7 +124,7 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
         return ExecutionResult(columns=["本期GMV"], rows=[[9665990.5]], sql=safe.sql)
 
     def save_log(conn: object, session_id: str, question: str, rewritten: str, sql: str,
-                 *rest: Any) -> int:
+                 *rest: Any, **kwargs: Any) -> int:
         saved["log_sql"] = sql
         saved["tokens"] = rest[-3:-1]
         return 1
@@ -136,6 +136,8 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
     monkeypatch.setattr(session, "save_query_log", save_log)
     monkeypatch.setattr(session, "save_call_traces", save_traces)
+    monkeypatch.setattr(session, "save_query_executions",
+                        lambda conn, log_id, records: saved.__setitem__("queries", records))
 
     def run(scripts: dict[str, list[list[Any]]], delay: float | dict[str, float] = 0.0):
         model = RoleModel(scripts, delay)

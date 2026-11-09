@@ -38,6 +38,7 @@ from ..semantic.schema_context import (
     table_names,
 )
 from ..semantic.table_search import TableSearcher, render_search
+from .session import PREVIEW_ROWS, QueryRecord
 from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,8 @@ class AgentRunContext:
     log_tag: str = "-"
     executions: list[ExecutionResult] = field(default_factory=list)
     purposes: list[str] = field(default_factory=list)
+    # Every SQL tried, including blocked and failed ones, in the order they finished.
+    query_records: list[QueryRecord] = field(default_factory=list)
     # The plan step of each execution; None outside a plan.
     step_ids: list[int | None] = field(default_factory=list)
     # Queries running or done. Plan steps run at once, so the limit counts queries in flight.
@@ -361,6 +364,8 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             failures_in_row += 1
             logger.warning("[%s] 查询 %d 被拦截 reason=%s sql=%s", context.log_tag, attempt,
                            _one_line(message), _one_line(sql))
+            context.query_records.append(QueryRecord(sql=sql, status="blocked",
+                                                     purpose=purpose, error=message))
             context.emit("status", {"step": "retrying",
                                     "message": f"{prefix}SQL 被拦截：{message.splitlines()[0]}"})
             return _with_limit(f"SQL 校验失败：{message}", failures_in_row, failure_limit)
@@ -373,6 +378,8 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             failures_in_row += 1
             logger.warning("[%s] 查询 %d 用了没检索过的表 tables=%s sql=%s", context.log_tag,
                            attempt, ",".join(unseen), _one_line(sql))
+            context.query_records.append(QueryRecord(sql=sql, status="blocked",
+                                                     purpose=purpose, error=message))
             context.emit("status", {"step": "retrying",
                                     "message": f"{prefix}SQL 用了没检索过的表：{'、'.join(unseen)}"})
             return _with_limit(message, failures_in_row, failure_limit)
@@ -381,6 +388,7 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             context.emit("status", {"step": "executing", "message": "正在执行查询"})
         context.reserved += 1
         step_reserved += 1
+        started = time.perf_counter()
         try:
             # In a thread, so plan steps running at once are not held up by the database.
             execution = await asyncio.to_thread(execute_sql, context.settings, safe_sql)
@@ -389,6 +397,9 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
             step_reserved -= 1
             message = str(exc)
             context.errors.append(message)
+            context.query_records.append(QueryRecord(
+                sql=safe_sql.sql, status="failed", purpose=purpose, error=message,
+                duration_ms=int((time.perf_counter() - started) * 1000)))
             context.failed_sql = safe_sql.sql
             logger.warning("[%s] 查询 %d 失败 error=%s sql=%s", context.log_tag, attempt,
                            _database_error(exc), _one_line(safe_sql.sql))
@@ -405,6 +416,10 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         context.purposes.append(purpose)
         context.step_ids.append(step_id)
         index = len(context.executions)
+        context.query_records.append(QueryRecord(
+            sql=execution.sql, status="ok", purpose=purpose, query_no=index,
+            row_count=len(execution.rows), duration_ms=execution.duration_ms,
+            columns=execution.columns, rows=execution.rows[:PREVIEW_ROWS]))
         logger.info("[%s] 查询 %d 成功 %dms %d 行 目的=%s", context.log_tag, index,
                     execution.duration_ms, len(execution.rows), purpose or "-")
         logger.debug("[%s] 查询 %d sql=%s", context.log_tag, index, _one_line(execution.sql))

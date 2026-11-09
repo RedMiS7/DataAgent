@@ -126,7 +126,7 @@ def main() -> int:
     store = build_vector_store(settings)
     embedder = build_embedder(settings)
     retriever = SemanticRetriever(settings, store, embedder)
-    pipeline = AskPipeline(settings, retriever)
+    pipeline = AskPipeline(settings, retriever, source="eval")
 
     questions = select_cases(load_questions(), dataset)
     if args.category:

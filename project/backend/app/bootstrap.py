@@ -181,9 +181,9 @@ class Bootstrapper:
                 "python -m app.semantic.cli grant_app_user") from exc
         if not reachable:
             raise RuntimeError(f"连不上 MySQL：{self.settings.mysql_host}:{self.settings.mysql_port}")
-        # Databases created before call tracing lack this table.
+        # Databases created before call tracing and query archiving lack these tables.
         with app_connection(self.settings) as conn:
-            session.ensure_trace_table(conn)
+            session.ensure_log_tables(conn)
             repository.ensure_entity_column(conn)
         return "done", ""
 

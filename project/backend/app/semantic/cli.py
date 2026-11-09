@@ -174,15 +174,69 @@ def format_trace(rows: list[dict]) -> list[str]:
     return lines
 
 
+PREVIEW_PRINT_ROWS = 5
+
+
+def format_answer(log: dict) -> list[str]:
+    """The conclusion as the user saw it, with where it came from and its warnings."""
+    lines = [f"问题：{log['question']}",
+             f"状态 {log['status']}，来源 {log['source']}，耗时 {log['duration_ms'] / 1000:.1f}s"]
+    if log["summary"]:
+        lines.append(f"结论（{log['summary_source'] or '-'}）：{log['summary']}")
+    else:
+        lines.append("结论：（无）")
+    if log["error_message"]:
+        lines.append(f"错误：{log['error_message']}")
+    lines.extend(f"警告：{warning}" for warning in log["warnings"])
+    return lines
+
+
+def format_executions(records: list[dict]) -> list[str]:
+    """Every SQL the question tried, with its first rows."""
+    lines = []
+    for record in records:
+        number = f"查询{record['query_no']}" if record["query_no"] else "未计入"
+        lines.append(f"#{record['seq']} [{number}] {record['status']} "
+                     f"{record['duration_ms']}ms {record['row_count']} 行  "
+                     f"{record['purpose'] or '-'}")
+        lines.extend(f"    {line}" for line in record["sql_text"].splitlines())
+        if record["error"]:
+            lines.append(f"    错误：{record['error']}")
+        preview = record["rows_preview"]
+        if preview:
+            lines.append(f"    | {' | '.join(str(name) for name in preview['columns'])}")
+            for row in preview["rows"][:PREVIEW_PRINT_ROWS]:
+                lines.append(f"    | {' | '.join(str(value) for value in row)}")
+            hidden = len(preview["rows"]) - PREVIEW_PRINT_ROWS
+            if hidden > 0:
+                lines.append(f"    | …… 另有 {hidden} 行存档")
+    return lines
+
+
 def cmd_show_trace(log_id: int | None) -> int:
     if log_id is None:
         print("用法：show_trace --log-id <query_logs 的 id>")
         return 2
     with app_connection(get_settings()) as conn:
+        log = session.load_query_log(conn, log_id)
+        executions = session.load_query_executions(conn, log_id)
         rows = session.load_call_traces(conn, log_id)
-    if not rows:
-        print(f"log_id={log_id} 没有调用记录")
+    if log is None:
+        print(f"没有 log_id={log_id} 的问答记录")
         return 1
+    for line in format_answer(log):
+        print(line)
+    print()
+    if executions:
+        print(f"查询 {len(executions)} 条：")
+        for line in format_executions(executions):
+            print(line)
+    else:
+        print("没有查询记录")
+    print()
+    if not rows:
+        print("没有调用记录")
+        return 0
     for line in format_trace(rows):
         print(line)
     models = [row for row in rows if row["kind"] == "model"]

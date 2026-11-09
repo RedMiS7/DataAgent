@@ -255,8 +255,9 @@ def agentic(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(repository, "fetch_schema_items", lambda conn, enabled_only=True: ITEMS)
     monkeypatch.setattr(repository, "fetch_tables", lambda conn: TABLES)
     monkeypatch.setattr(TableSearcher, "search", search)
-    monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
+    monkeypatch.setattr(session, "save_query_log", lambda *args, **kwargs: 1)
     monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
+    monkeypatch.setattr(session, "save_query_executions", lambda *args: None)
 
     def run(script: list[list[Any]], schema_mode: str = "agentic",
             history: list[HistoryMessage] | None = None) -> tuple[Any, list[dict]]:

@@ -82,10 +82,18 @@ def ask(monkeypatch: pytest.MonkeyPatch):
         return ExecutionResult(columns=["商品", "销量"], rows=[["童装热销款208号", 176]],
                                sql=safe.sql)
 
+    saved: dict[str, Any] = {}
+
+    def save_log(conn: object, *args: Any, **kwargs: Any) -> int:
+        saved["log"] = kwargs
+        return 1
+
     monkeypatch.setattr(pipeline, "app_connection", no_connection)
     monkeypatch.setattr(tools, "execute_sql", fake_execute)
-    monkeypatch.setattr(session, "save_query_log", lambda *args: 1)
+    monkeypatch.setattr(session, "save_query_log", save_log)
     monkeypatch.setattr(session, "save_call_traces", lambda *args: None)
+    monkeypatch.setattr(session, "save_query_executions",
+                        lambda conn, log_id, records: saved.__setitem__("queries", records))
 
     def run(script: list[Any] | None, mode: str = "query", **settings: Any):
         events: list[tuple[str, dict[str, Any]]] = []
@@ -97,6 +105,8 @@ def ask(monkeypatch: pytest.MonkeyPatch):
             lambda event, data: events.append((event, data)), mode)  # type: ignore[arg-type]
         return answer, events
 
+    # What would be stored for the last question: the log fields and every query.
+    run.saved = saved  # type: ignore[attr-defined]
     return run
 
 
@@ -116,6 +126,27 @@ def test_a_timeout_after_a_query_shows_what_was_found(ask) -> None:
     assert answer.table is not None and answer.table.rows == [["童装热销款208号", 176]]
     assert answer.summary_source == "template" and answer.summary
     assert "2026-09-01" in answer.sql
+
+
+def test_a_degraded_answer_archives_the_failed_and_the_finished_queries(ask) -> None:
+    answer, _ = ask([[call("run_sql", sql=BAD_SQL)], [call("run_sql", sql=GOOD_SQL)], HANG],
+                    ask_timeout_seconds=0.5)
+    assert answer.status == "partial"
+    log = ask.saved["log"]
+    assert log["summary"] == answer.summary != ""
+    assert log["summary_source"] == "template"
+    failed, ran = ask.saved["queries"]
+    assert (failed.status, failed.query_no) == ("failed", None)
+    assert "Unknown column 'amount'" in failed.error and "amount" in failed.sql
+    assert (ran.status, ran.query_no, ran.rows) == ("ok", 1, [["童装热销款208号", 176]])
+
+
+def test_an_answer_without_a_conclusion_stores_no_summary_source(ask) -> None:
+    answer, _ = ask([HANG], ask_timeout_seconds=0.5)
+    assert answer.status == "error"
+    assert ask.saved["log"]["summary"] == ""
+    assert ask.saved["log"]["summary_source"] == ""
+    assert ask.saved["queries"] == []
 
 
 def test_a_timeout_before_any_query_explains_itself(ask) -> None:

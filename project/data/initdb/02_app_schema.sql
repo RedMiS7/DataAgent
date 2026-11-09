@@ -79,9 +79,33 @@ CREATE TABLE IF NOT EXISTS query_logs (
     prompt_tokens      INT NOT NULL DEFAULT 0,
     completion_tokens  INT NOT NULL DEFAULT 0,
     error_message      VARCHAR(512) NOT NULL DEFAULT '',
+    summary            TEXT NULL,
+    summary_source     VARCHAR(16) NOT NULL DEFAULT '',
+    warnings           JSON NULL,
+    source             VARCHAR(16) NOT NULL DEFAULT 'web',
     created_at         DATETIME NOT NULL,
     KEY idx_logs_created (created_at),
     KEY idx_logs_status (status)
+) ENGINE=InnoDB;
+
+-- One row per SQL a question tried: ok, blocked by the checks, or failed in the database.
+-- rows_preview holds at most 20 rows of the safe views. It is kept as long as its
+-- query_logs row; nothing removes it automatically. To clear old ones:
+--   DELETE FROM query_executions WHERE created_at < NOW() - INTERVAL 90 DAY;
+CREATE TABLE IF NOT EXISTS query_executions (
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
+    log_id        BIGINT NOT NULL,
+    seq           INT NOT NULL,
+    query_no      INT NULL,
+    purpose       VARCHAR(255) NOT NULL DEFAULT '',
+    sql_text      TEXT NOT NULL,
+    status        VARCHAR(16) NOT NULL,
+    row_count     INT NOT NULL DEFAULT 0,
+    error         VARCHAR(512) NOT NULL DEFAULT '',
+    duration_ms   INT NOT NULL DEFAULT 0,
+    rows_preview  JSON NULL,
+    created_at    DATETIME NOT NULL,
+    KEY idx_query_executions_log (log_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS feedback (

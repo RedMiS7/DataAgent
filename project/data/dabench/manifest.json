@@ -1,0 +1,459 @@
+{
+  "description": "DABench 竞赛数据集：进销存、汽车销售线索、金融信贷。原始表在 raw_database，只读账号只能查 database 里的视图。",
+  "data_dir": "../../DB/data",
+  "raw_database": "dabench_raw",
+  "database": "dabench",
+  "app_database": "dataagent_dabench",
+  "tables": [
+    {
+      "name": "inventory",
+      "source": "inventory.csv",
+      "primary_key": [
+        "product_id",
+        "stat_date"
+      ],
+      "columns": [
+        {
+          "source": "日期",
+          "name": "stat_date",
+          "type": "date"
+        },
+        {
+          "source": "产品ID",
+          "name": "product_id",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "期初库存数量",
+          "name": "opening_qty",
+          "type": "int"
+        },
+        {
+          "source": "期末库存数量",
+          "name": "closing_qty",
+          "type": "int"
+        },
+        {
+          "source": "进货数量",
+          "name": "purchase_qty",
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "source": "order.csv",
+      "primary_key": [
+        "order_id"
+      ],
+      "indexes": [
+        [
+          "order_date"
+        ],
+        [
+          "product_id"
+        ],
+        [
+          "customer_id"
+        ]
+      ],
+      "columns": [
+        {
+          "source": "客户ID",
+          "name": "customer_id",
+          "type": "varchar(20)"
+        },
+        {
+          "source": "客户等级",
+          "name": "customer_level",
+          "type": "varchar(8)"
+        },
+        {
+          "source": "下单日期",
+          "name": "order_date",
+          "type": "date"
+        },
+        {
+          "source": "送达日期",
+          "name": "delivered_date",
+          "type": "date"
+        },
+        {
+          "source": "订单ID",
+          "name": "order_id",
+          "type": "varchar(20)"
+        },
+        {
+          "source": "产品ID",
+          "name": "product_id",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "订购数量",
+          "name": "quantity",
+          "type": "int"
+        },
+        {
+          "source": "单件销售价格",
+          "name": "unit_price",
+          "type": "decimal(16,8)"
+        },
+        {
+          "source": "单件成本价",
+          "name": "unit_cost",
+          "type": "decimal(12,2)"
+        },
+        {
+          "source": "是否促销",
+          "name": "is_promotion",
+          "type": "bool"
+        },
+        {
+          "source": "退货发起日期",
+          "name": "return_requested_date",
+          "type": "date"
+        },
+        {
+          "source": "退货入库日期",
+          "name": "return_received_date",
+          "type": "date"
+        },
+        {
+          "source": "退货数量",
+          "name": "return_qty",
+          "type": "int"
+        },
+        {
+          "source": "退货原因",
+          "name": "return_reason",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "配送时长",
+          "name": "delivery_days",
+          "type": "int"
+        },
+        {
+          "source": "年月",
+          "name": "order_month",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "name": "car_leads",
+      "source": "汽车-销售线索订单数据集.csv",
+      "primary_key": [
+        "lead_id"
+      ],
+      "indexes": [
+        [
+          "created_date"
+        ],
+        [
+          "province"
+        ]
+      ],
+      "hidden": [
+        "phone",
+        "customer_name"
+      ],
+      "columns": [
+        {
+          "source": "线索ID",
+          "name": "lead_id",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "留资手机号",
+          "name": "phone",
+          "type": "varchar(20)"
+        },
+        {
+          "source": "客户姓名",
+          "name": "customer_name",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "省份",
+          "name": "province",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "城市",
+          "name": "city",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "经销商",
+          "name": "dealer",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "销售顾问",
+          "name": "sales_advisor",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "意向车型",
+          "name": "intended_model",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "来源一级渠道",
+          "name": "channel",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "二级渠道",
+          "name": "sub_channel",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "线索创建日期",
+          "name": "created_date",
+          "type": "date"
+        },
+        {
+          "source": "线索作废日期",
+          "name": "voided_date",
+          "type": "date"
+        },
+        {
+          "source": "线索状态",
+          "name": "lead_status",
+          "type": "varchar(8)"
+        },
+        {
+          "source": "是否有效",
+          "name": "is_valid",
+          "type": "bool"
+        },
+        {
+          "source": "是否到店",
+          "name": "is_visited",
+          "type": "bool"
+        },
+        {
+          "source": "是否试驾",
+          "name": "is_test_driven",
+          "type": "bool"
+        },
+        {
+          "source": "是否下定",
+          "name": "is_ordered",
+          "type": "bool"
+        },
+        {
+          "source": "订单号",
+          "name": "order_no",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "订单状态",
+          "name": "order_status",
+          "type": "varchar(8)"
+        },
+        {
+          "source": "首次跟进日期",
+          "name": "first_followup_date",
+          "type": "date"
+        },
+        {
+          "source": "下定日期",
+          "name": "order_date",
+          "type": "date"
+        },
+        {
+          "source": "交车日期",
+          "name": "delivery_date",
+          "type": "date"
+        },
+        {
+          "source": "退单日期",
+          "name": "cancel_date",
+          "type": "date"
+        },
+        {
+          "source": "计划购车时间",
+          "name": "purchase_plan",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "顾问工作年限",
+          "name": "advisor_tenure",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "线索成本",
+          "name": "lead_cost",
+          "type": "int"
+        },
+        {
+          "source": "车型定价",
+          "name": "model_price",
+          "type": "int"
+        },
+        {
+          "source": "车型利润",
+          "name": "model_profit",
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "name": "loan_applications",
+      "source": "loan_applications_处理后.xlsx",
+      "sheet": "loan_applications",
+      "primary_key": [
+        "application_id"
+      ],
+      "indexes": [
+        [
+          "application_date"
+        ],
+        [
+          "customer_id"
+        ]
+      ],
+      "hidden": [
+        "address",
+        "street",
+        "district",
+        "postal_code"
+      ],
+      "columns": [
+        {
+          "source": "申请ID",
+          "name": "application_id",
+          "type": "varchar(40)"
+        },
+        {
+          "source": "客户ID",
+          "name": "customer_id",
+          "type": "varchar(20)"
+        },
+        {
+          "source": "申请日期",
+          "name": "application_date",
+          "type": "date"
+        },
+        {
+          "source": "贷款类型",
+          "name": "loan_type",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "申请贷款金额",
+          "name": "loan_amount",
+          "type": "int"
+        },
+        {
+          "source": "贷款期限（月）",
+          "name": "term_months",
+          "type": "int"
+        },
+        {
+          "source": "提供的利率",
+          "name": "interest_rate",
+          "type": "decimal(6,2)"
+        },
+        {
+          "source": "贷款用途",
+          "name": "loan_purpose",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "就业状况",
+          "name": "employment_status",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "月收入",
+          "name": "monthly_income",
+          "type": "int"
+        },
+        {
+          "source": "信用评分",
+          "name": "credit_score",
+          "type": "decimal(6,1)"
+        },
+        {
+          "source": "现有的每月等额本息还款额",
+          "name": "monthly_installment",
+          "type": "int"
+        },
+        {
+          "source": "债务收入比",
+          "name": "debt_to_income",
+          "type": "decimal(12,4)"
+        },
+        {
+          "source": "房产所有权状态",
+          "name": "home_ownership",
+          "type": "varchar(16)"
+        },
+        {
+          "source": "居住地址",
+          "name": "address",
+          "type": "varchar(64)"
+        },
+        {
+          "source": "街道",
+          "name": "street",
+          "type": "varchar(64)"
+        },
+        {
+          "source": "地区",
+          "name": "district",
+          "type": "varchar(64)"
+        },
+        {
+          "source": "城市",
+          "name": "city",
+          "type": "varchar(64)"
+        },
+        {
+          "source": "省份",
+          "name": "province",
+          "type": "varchar(64)"
+        },
+        {
+          "source": "邮编",
+          "name": "postal_code",
+          "type": "varchar(10)"
+        },
+        {
+          "source": "申请人年龄",
+          "name": "applicant_age",
+          "type": "int"
+        },
+        {
+          "source": "性别",
+          "name": "gender",
+          "type": "varchar(8)"
+        },
+        {
+          "source": "受抚养人数",
+          "name": "dependents",
+          "type": "int"
+        },
+        {
+          "source": "贷款状态",
+          "name": "loan_status",
+          "type": "varchar(32)"
+        },
+        {
+          "source": "欺诈标识",
+          "name": "is_fraud",
+          "type": "int"
+        },
+        {
+          "source": "欺诈类型",
+          "name": "fraud_type",
+          "type": "varchar(32)"
+        }
+      ]
+    }
+  ]
+}

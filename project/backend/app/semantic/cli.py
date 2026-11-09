@@ -3,7 +3,11 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from .. import importer
 from ..agent import session
 from ..agent.scope_model import build_chat_model, probe_chat_model
 from ..config import get_settings
@@ -20,6 +24,37 @@ def cmd_init_semantic() -> int:
     with app_connection(settings) as conn:
         counts = repository.sync_seed(conn, bundle)
     print(f"semantic layer synced: {counts}")
+    return 0
+
+
+def cmd_import_dataset(manifest_path: str | None) -> int:
+    if not manifest_path:
+        print("需要 --manifest，例如 data/dabench/manifest.json", file=sys.stderr)
+        return 1
+    settings = get_settings()
+    try:
+        manifest = importer.load_manifest(Path(manifest_path))
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"清单读取失败：{exc}", file=sys.stderr)
+        return 1
+    started = time.perf_counter()
+
+    def progress(table: str, rows: int) -> None:
+        print(f"\r导入 {table}：{rows} 行", end="", flush=True)
+
+    try:
+        counts = importer.import_dataset(settings, manifest,
+                                         settings.data_dir / "initdb" / "02_app_schema.sql",
+                                         progress)
+    except importer.DatasetError as exc:
+        print(f"\n导入失败：{exc}", file=sys.stderr)
+        return 1
+    except SQLAlchemyError as exc:
+        print(f"\n导入失败，数据库报错：{getattr(exc, 'orig', None) or exc}", file=sys.stderr)
+        return 1
+    print(f"\n导入完成，用时 {time.perf_counter() - started:.0f} 秒：{counts}")
+    print(f"原始表在 {manifest.raw_database}，只读账号查 {manifest.database} 的视图，"
+          f"应用库是 {manifest.app_database}")
     return 0
 
 
@@ -128,11 +163,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.semantic.cli")
     parser.add_argument("command",
                         choices=["init_semantic", "build_index", "status", "check_models",
-                                 "show_trace"])
+                                 "show_trace", "import_dataset"])
     parser.add_argument("--log-id", type=int, help="show_trace 要查看的 query_logs id")
+    parser.add_argument("--manifest", help="import_dataset 用的数据集清单")
     args = parser.parse_args(argv)
     if args.command == "show_trace":
         return cmd_show_trace(args.log_id)
+    if args.command == "import_dataset":
+        return cmd_import_dataset(args.manifest)
     if args.command == "init_semantic":
         return cmd_init_semantic()
     if args.command == "build_index":

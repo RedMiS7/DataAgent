@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
 COPY data/seed /data/seed
+COPY data/seed_dabench /data/seed_dabench
 COPY --from=frontend /frontend/dist ./static
 
 EXPOSE 8000

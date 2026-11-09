@@ -53,6 +53,9 @@ class CaseResult:
     # Failures because a column does not exist, from the validator or MySQL (1054).
     field_errors: int = 0
     describe_calls: int = 0
+    # search_semantic calls, and queries turned back for reading a table not searched.
+    search_calls: int = 0
+    unseen_rejections: int = 0
     # Rows compared ignoring extra columns and column order; None when rows are not compared.
     loose_passed: bool | None = None
     # What a failed case looks like, as a starting point for labelling its cause by hand.
@@ -61,9 +64,12 @@ class CaseResult:
     reference_sql: str = ""
 
 
+ProbeKind = Literal["validate", "execute", "describe", "search", "unseen"]
+
+
 @dataclass(slots=True)
 class ProbeEvent:
-    kind: Literal["validate", "execute", "describe"]
+    kind: ProbeKind
     ok: bool
     error: str = ""
 
@@ -79,8 +85,7 @@ class ToolProbe:
     events: list[ProbeEvent] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def _record(self, kind: Literal["validate", "execute", "describe"], ok: bool,
-                error: str = "") -> None:
+    def _record(self, kind: ProbeKind, ok: bool, error: str = "") -> None:
         with self._lock:
             self.events.append(ProbeEvent(kind, ok, error))
 
@@ -89,6 +94,8 @@ class ToolProbe:
         real_validate = tools.validate_and_limit
         real_execute = tools.execute_sql
         real_describe = tools.describe_tables
+        real_search = tools.search_tables
+        real_unseen = tools.unseen_tables
 
         def validate(sql: str, *args: Any, **kwargs: Any) -> Any:
             try:
@@ -112,9 +119,22 @@ class ToolProbe:
             self._record("describe", True)
             return real_describe(settings, names)
 
+        def search(context: Any, question: str) -> str:
+            self._record("search", True)
+            return real_search(context, question)
+
+        def unseen(context: Any, tables: tuple[str, ...]) -> list[str]:
+            found = real_unseen(context, tables)
+            if found:
+                # The query was turned back before it ran: a failed attempt.
+                self._record("unseen", False, "、".join(found))
+            return found
+
         with mock.patch.object(tools, "validate_and_limit", validate), \
                 mock.patch.object(tools, "execute_sql", execute), \
-                mock.patch.object(tools, "describe_tables", describe):
+                mock.patch.object(tools, "describe_tables", describe), \
+                mock.patch.object(tools, "search_tables", search), \
+                mock.patch.object(tools, "unseen_tables", unseen):
             yield self
 
     @property
@@ -123,7 +143,8 @@ class ToolProbe:
 
     @property
     def sql_failures(self) -> int:
-        return sum(not event.ok for event in self.events if event.kind != "describe")
+        return sum(not event.ok for event in self.events
+                   if event.kind in ("validate", "execute", "unseen"))
 
     @property
     def field_errors(self) -> int:
@@ -133,6 +154,15 @@ class ToolProbe:
     @property
     def describe_calls(self) -> int:
         return sum(event.kind == "describe" for event in self.events)
+
+    @property
+    def search_calls(self) -> int:
+        return sum(event.kind == "search" for event in self.events)
+
+    @property
+    def unseen_rejections(self) -> int:
+        """Queries turned back because they read a table the model had not searched."""
+        return sum(event.kind == "unseen" for event in self.events)
 
 
 def _average(values: list[int]) -> float:
@@ -154,6 +184,8 @@ def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
         "sql_failures": sum(case.sql_failures for case in cases),
         "field_errors": sum(case.field_errors for case in cases),
         "describe_calls": sum(case.describe_calls for case in cases),
+        "search_calls": sum(case.search_calls for case in cases),
+        "unseen_rejections": sum(case.unseen_rejections for case in cases),
         "model_calls_avg": _average([case.model_calls for case in with_model]),
         "input_tokens_avg": _average([case.input_tokens for case in with_model]),
         "output_tokens_avg": _average([case.output_tokens for case in with_model]),
@@ -493,6 +525,8 @@ def evaluate_questions(settings: Settings, pipeline: AskPipeline, questions: lis
             sql_failures=probe.sql_failures,
             field_errors=probe.field_errors,
             describe_calls=probe.describe_calls,
+            search_calls=probe.search_calls,
+            unseen_rejections=probe.unseen_rejections,
             loose_passed=loose,
             reference_sql=expected_sql if question.get("expect_from_previous") else "",
             failure_hint="" if passed else failure_hint(
@@ -538,6 +572,8 @@ def evaluate_analysis(pipeline: AskPipeline, questions: list[dict],
                 sql_failures=probe.sql_failures,
                 field_errors=probe.field_errors,
                 describe_calls=probe.describe_calls,
+            search_calls=probe.search_calls,
+            unseen_rejections=probe.unseen_rejections,
                 failure_hint="" if passed else failure_hint(
                     "analysis", answer, "", [], [], probe, detail),
             ))

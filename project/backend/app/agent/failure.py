@@ -17,7 +17,7 @@ DETAIL_LIMIT = 200
 MODEL_MODULES = ("openai", "httpx", "httpcore", "dashscope", "anthropic", "agentscope.model")
 
 RETRY_LATER = "可以稍后重试，或者把问题拆小一点再问。"
-REPHRASE = "可以换个说法，或者写明要看的指标、维度和时间，例如“按渠道看上个月的 GMV”。"
+REPHRASE = "可以换个说法，或者写明要看的指标、维度和时间，例如“按地区看上个月的销售额”。"
 CHECK_MODEL = "可以到设置页检查模型配置和 Key，或者稍后重试。"
 
 

@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,10 +32,12 @@ from ..semantic.schema_context import (
     SchemaContext,
     TableColumns,
     bare_name,
+    build_agentic_context,
     build_schema_context,
     render_table,
     table_names,
 )
+from ..semantic.table_search import TableSearcher, render_search
 from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,8 @@ ANALYSIS_MAX_QUERIES = 10
 QUERY_LIMIT_MESSAGE = "查询次数已用完，不要再调用 run_sql，请基于已有结果作答。"
 STEP_LIMIT_MESSAGE = "这一步的查询次数已用完，不要再调用 run_sql，用一两句话说明这一步看到了什么。"
 UNKNOWN_COLUMN_HINT = "字段名不对。先调用 describe_table 查看这张表的真实字段，再重写 SQL。"
+UNSEEN_TABLE_MESSAGE = ("SQL 用到的表还没有检索过：{tables}。先调用 search_semantic 检索这些表"
+                        "（或用 describe_table 查看），看过全部字段后再写 SQL。")
 FAILURE_LIMIT_MESSAGE = ("SQL 已经连续失败 {count} 次。不要再调用 run_sql，"
                          "直接告诉用户这次没有查出来，并说明最后一次失败的原因。")
 MYSQL_UNKNOWN_COLUMN = re.compile(r"Unknown column '([^']+)'")
@@ -82,6 +87,13 @@ class AgentRunContext:
     failed_sql: str = ""
     trace: CallTrace = field(default_factory=CallTrace)
     declined: str = ""
+    # Table search for search_semantic; None keeps the older retrieval tool.
+    searcher: TableSearcher | None = None
+    # Tables whose columns the model has seen: put in the prompt, searched or described.
+    visible_tables: set[str] = field(default_factory=set)
+    # SQL may only read visible tables; set when the model searches tables itself.
+    require_visible: bool = False
+    searches: int = 0
 
 
 def _json(data: Any) -> str:
@@ -128,19 +140,72 @@ def _make_describe(context: AgentRunContext) -> Callable[[list[str]], Any]:
         """查看表的全部字段、类型和说明。写 SQL 前字段不确定时调用。
 
         Args:
-            tables: 要查看的表名，可以一次查多张，例如 ["ad_daily_stats", "refunds"]。
+            tables: 要查看的表名，可以一次查多张，写法和【表目录】里的一样。
         """
         names = "、".join(tables)
         context.emit("status", {"step": "describing", "message": f"查看字段：{names}"})
         logger.info("[%s] 查看字段 tables=%s", context.log_tag, names)
         try:
             # In a thread, so plan steps running at once are not held up by the database.
-            return await asyncio.to_thread(describe_tables, context.settings, tables)
+            text = await asyncio.to_thread(describe_tables, context.settings, tables)
         except SQLAlchemyError as exc:
             logger.warning("[%s] 查看字段失败 tables=%s error=%s", context.log_tag, names, exc)
             return f"查看字段失败：{exc}"
+        known = table_columns(context.settings) or {}
+        prefix = f"{context.settings.mysql_business_db}."
+        context.visible_tables.update(table for table in (bare_name(name, prefix)
+                                                          for name in tables) if table in known)
+        return text
 
     return describe_table
+
+
+def search_tables(context: AgentRunContext, question: str) -> str:
+    """Search the tables for ``question`` and write them out with all of their columns."""
+    assert context.searcher is not None
+    settings = context.settings
+    started = time.perf_counter()
+    prefix = f"{settings.mysql_business_db}."
+    with app_connection(settings) as conn:
+        search = context.searcher.search(question, conn)
+        items = repository.fetch_schema_items(conn, enabled_only=False)
+        summaries = {bare_name(table.table_name, prefix): table.summary
+                     for table in repository.fetch_tables(conn)}
+    text, shown = render_search(search, table_columns(settings) or {}, items, summaries,
+                                settings.schema_token_budget, prefix)
+    context.visible_tables.update(shown)
+    context.searches += 1
+    logger.info("[%s] 检索表 %dms query=%r tables=%s%s", context.log_tag,
+                int((time.perf_counter() - started) * 1000), question,
+                ",".join(f"{choice.table}({choice.reasons[0]})" for choice in search.tables),
+                f" note={search.rerank_note}" if search.rerank_note else "")
+    return text
+
+
+def unseen_tables(context: AgentRunContext, tables: tuple[str, ...]) -> list[str]:
+    """The tables of a query whose columns the model has not seen."""
+    if not context.require_visible:
+        return []
+    return [table for table in tables if table not in context.visible_tables]
+
+
+def _make_table_search(context: AgentRunContext) -> Callable[[str], Any]:
+    async def search_semantic(question: str) -> str:
+        """检索要用的表：返回相关的表和它们的全部字段、指标口径、历史案例和匹配到的取值。
+        写 SQL 前调用，一次描述清楚要查的内容。
+
+        Args:
+            question: 要查什么，一句中文，例如“上个月各地区的数量和金额”。
+        """
+        context.emit("status", {"step": "searching", "message": f"检索表：{question}"})
+        try:
+            # In a thread: the database and the rerank model would hold up plan steps.
+            return await asyncio.to_thread(search_tables, context, question)
+        except SQLAlchemyError as exc:
+            logger.warning("[%s] 检索表失败 query=%r error=%s", context.log_tag, question, exc)
+            return f"检索表失败：{exc}。可以用 describe_table 按表名查看。"
+
+    return search_semantic
 
 
 def _make_search(context: AgentRunContext) -> Callable[[str], str]:
@@ -190,6 +255,20 @@ def sql_policy(settings: Settings) -> SQLPolicy:
         logger.warning("读不到业务库的表和字段，这次只检查库名，不检查表名和字段")
     return SQLPolicy(schema=settings.mysql_business_db, dialect=settings.sql_dialect,
                      columns=columns)
+
+
+def agentic_context(settings: Settings, conn: Connection, bundle: RetrievalBundle,
+                    previous: list[str]) -> SchemaContext | None:
+    """The table catalog and the tables of the recent SQL; None when the columns cannot
+    be read, and the prompt keeps the retrieved columns instead."""
+    columns = table_columns(settings)
+    if not columns:
+        return None
+    prefix = f"{settings.mysql_business_db}."
+    items = repository.fetch_schema_items(conn, enabled_only=False)
+    summaries = {bare_name(table.table_name, prefix): table.summary for table in bundle.tables}
+    return build_agentic_context(columns, items, summaries, previous,
+                                 settings.schema_token_budget, prefix)
 
 
 def schema_context(settings: Settings, conn: Connection, bundle: RetrievalBundle,
@@ -286,6 +365,18 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
                                     "message": f"{prefix}SQL 被拦截：{message.splitlines()[0]}"})
             return _with_limit(f"SQL 校验失败：{message}", failures_in_row, failure_limit)
 
+        unseen = unseen_tables(context, safe_sql.tables)
+        if unseen:
+            message = UNSEEN_TABLE_MESSAGE.format(tables="、".join(unseen))
+            context.errors.append(message)
+            context.failed_sql = sql
+            failures_in_row += 1
+            logger.warning("[%s] 查询 %d 用了没检索过的表 tables=%s sql=%s", context.log_tag,
+                           attempt, ",".join(unseen), _one_line(sql))
+            context.emit("status", {"step": "retrying",
+                                    "message": f"{prefix}SQL 用了没检索过的表：{'、'.join(unseen)}"})
+            return _with_limit(message, failures_in_row, failure_limit)
+
         if not analysis:
             context.emit("status", {"step": "executing", "message": "正在执行查询"})
         context.reserved += 1
@@ -361,10 +452,15 @@ def _make_decline(context: AgentRunContext) -> Callable[[str], str]:
 def build_toolkit(context: AgentRunContext, step_id: int | None = None,
                   step_limit: int | None = None) -> Toolkit:
     """Tools for one agent; a plan step's toolkit tags its queries and caps their number."""
+    search = (FunctionTool(_make_table_search(context), name="search_semantic",
+                           description="检索要用的表和它们的全部字段，以及指标口径和历史案例",
+                           permission=READ_ONLY_PERMISSION, is_read_only=True)
+              if context.searcher is not None else
+              FunctionTool(_make_search(context), name="search_semantic",
+                           description="检索与问题相关的表、字段、指标口径和历史案例",
+                           permission=READ_ONLY_PERMISSION, is_read_only=True))
     return Toolkit([
-        FunctionTool(_make_search(context), name="search_semantic",
-                     description="检索与问题相关的表、字段、指标口径和历史案例",
-                     permission=READ_ONLY_PERMISSION, is_read_only=True),
+        search,
         FunctionTool(_make_run_sql(context, step_id, step_limit), name="run_sql",
                      description="执行一条只读 SELECT 语句并返回查询结果",
                      permission=READ_ONLY_PERMISSION, is_read_only=True),

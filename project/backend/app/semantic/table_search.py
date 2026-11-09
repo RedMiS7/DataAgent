@@ -22,14 +22,17 @@ from ..db.engine import business_connection
 from ..rerank import Reranker, RerankError
 from ..vector.base import VectorStoreError
 from . import repository
-from .models import CaseHit, EntityHit, Metric, MetricHit, SchemaItem, TableSemantic
+from .models import CaseHit, EntityHit, Metric, MetricHit, RetrievalBundle, SchemaItem, TableSemantic
 from .retriever import SemanticRetriever, _keyword_rank
 from .schema_context import (
+    TableColumns,
     bare_name,
     connect,
+    estimate_tokens,
     hint_keys,
     join_graph,
     pointed_tables,
+    render_table,
     table_names,
 )
 
@@ -277,3 +280,47 @@ class TableSearcher:
             logger.warning("重排失败，按检索排序 error=%s", exc)
             return by_retrieval, False, f"重排不可用：{exc}"
         return [(candidates[result.index], result.score) for result in results], True, ""
+
+
+SEARCH_HEADER = "检索到的表，每张表都列出了全部字段，没列出的字段就不存在："
+LEFT_OUT = "还有这些表因为长度限制没有放进来：{tables}。要用时再检索，或者用 describe_table 查看。"
+NOTHING_FOUND = "没有检索到相关的表。可以换个说法再检索，或者用 describe_table 按表名查看。"
+
+
+def render_search(search: TableSearch, columns: TableColumns, items: Sequence[SchemaItem],
+                  summaries: dict[str, str], budget: int,
+                  prefix: str) -> tuple[str, list[str]]:
+    """What search_semantic returns, and the tables written out in it.
+
+    The tables fit in ``budget`` tokens. When they do not, the chosen tables with the
+    lowest scores are left out first; the tables completion added stay, as the others
+    cannot be joined without them.
+    """
+    by_key = {(item.table_name, item.column_name): item for item in items}
+    sections = {choice.table: render_table(
+        choice.table, columns[choice.table], by_key, prefix,
+        f"{summaries.get(choice.table, '')}（{'、'.join(choice.reasons)}）")
+        for choice in search.tables if choice.table in columns}
+    added = [choice.table for choice in search.tables
+             if choice.table in sections and choice.reasons[0] not in (RETRIEVED, RERANKED)]
+    chosen = sorted((choice for choice in search.tables if choice.table in sections
+                     and choice.table not in added), key=lambda choice: -choice.score)
+    kept = set(added)
+    used = estimate_tokens(SEARCH_HEADER) + sum(estimate_tokens(sections[table])
+                                                 for table in added)
+    for choice in chosen:
+        cost = estimate_tokens(sections[choice.table])
+        if used + cost > budget and kept:
+            continue
+        kept.add(choice.table)
+        used += cost
+    shown = [choice.table for choice in search.tables if choice.table in kept]
+    left_out = [table for table in sections if table not in kept]
+    parts = [SEARCH_HEADER, *(sections[table] for table in shown)] if shown else [NOTHING_FOUND]
+    if left_out:
+        parts.append(LEFT_OUT.format(tables="、".join(f"{prefix}{table}" for table in left_out)))
+    knowledge = RetrievalBundle(metrics=search.metrics, cases=search.cases,
+                                entities=search.entities).to_prompt_context(include_schema=False)
+    if knowledge:
+        parts.append(knowledge)
+    return "\n\n".join(parts), shown

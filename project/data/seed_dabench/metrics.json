@@ -1,0 +1,121 @@
+[
+  {
+    "name": "销售额",
+    "aliases": "销售金额,营收,收入",
+    "definition": "订购数量 × 单件销售价格的合计，按下单日期归属，不扣除退货",
+    "formula": "SUM(o.quantity * o.unit_price) FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end",
+    "related_tables": "dabench.orders"
+  },
+  {
+    "name": "销售成本",
+    "aliases": "成本",
+    "definition": "订购数量 × 单件成本价的合计，按下单日期归属",
+    "formula": "SUM(o.quantity * o.unit_cost) FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end",
+    "related_tables": "dabench.orders"
+  },
+  {
+    "name": "毛利",
+    "aliases": "毛利额",
+    "definition": "销售额减去销售成本，按下单日期归属，不扣除退货",
+    "formula": "SUM(o.quantity * (o.unit_price - o.unit_cost)) FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end",
+    "related_tables": "dabench.orders"
+  },
+  {
+    "name": "毛利率",
+    "aliases": "毛利润率",
+    "definition": "毛利 ÷ 销售额 × 100，按下单日期归属，不扣除退货",
+    "formula": "SUM(o.quantity * (o.unit_price - o.unit_cost)) / NULLIF(SUM(o.quantity * o.unit_price), 0) * 100 FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end",
+    "related_tables": "dabench.orders"
+  },
+  {
+    "name": "退货率",
+    "aliases": "退货比例",
+    "definition": "按件数算：退货数量合计 ÷ 订购数量合计 × 100，按下单日期归属",
+    "formula": "SUM(o.return_qty) / NULLIF(SUM(o.quantity), 0) * 100 FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end",
+    "related_tables": "dabench.orders"
+  },
+  {
+    "name": "库存周转率",
+    "aliases": "周转率,库存周转",
+    "definition": "按数量算：当月销售件数 ÷ 当月平均库存件数。平均库存件数 = 当月每天各产品 (期初库存 + 期末库存) / 2 的合计，再按天数平均。库存表只有数量，没有成本",
+    "formula": "(SELECT SUM(o.quantity) FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end) / NULLIF((SELECT SUM((i.opening_qty + i.closing_qty) / 2) / COUNT(DISTINCT i.stat_date) FROM dabench.inventory i WHERE i.stat_date >= :start AND i.stat_date < :end), 0)",
+    "related_tables": "dabench.orders,dabench.inventory"
+  },
+  {
+    "name": "复购率",
+    "aliases": "用户复购率,回购率",
+    "definition": "当月下单 2 笔及以上的客户数 ÷ 当月下单的客户数 × 100，订单数按订单编号去重",
+    "formula": "SUM(t.orders >= 2) / COUNT(*) * 100 FROM (SELECT o.customer_id, COUNT(DISTINCT o.order_id) AS orders FROM dabench.orders o WHERE o.order_date >= :start AND o.order_date < :end GROUP BY o.customer_id) t",
+    "related_tables": "dabench.orders"
+  },
+  {
+    "name": "线索转化漏斗",
+    "aliases": "漏斗,转化率,转换率,环节转化率",
+    "definition": "线索的转化路径：线索 → 有效线索（is_valid = 1）→ 到店（is_visited = 1）→ 试驾（is_test_driven = 1）→ 订单（is_ordered = 1）→ 交付（order_status = '已交车'）。两个环节之间的转换率 = 后一环节的数量 ÷ 前一环节的数量，按线索创建日期归属",
+    "formula": "COUNT(*) AS 线索, SUM(c.is_valid) AS 有效线索, SUM(c.is_visited) AS 到店, SUM(c.is_test_driven) AS 试驾, SUM(c.is_ordered) AS 订单, SUM(c.order_status = '已交车') AS 交付 FROM dabench.car_leads c WHERE c.created_date >= :start AND c.created_date < :end",
+    "related_tables": "dabench.car_leads"
+  },
+  {
+    "name": "成单数",
+    "aliases": "成单,成交数",
+    "definition": "完成车辆交付且没有被退单的线索数，也就是订单状态为已交车；只下订单未交付不算，按线索创建日期归属",
+    "formula": "COUNT(*) FROM dabench.car_leads c WHERE c.order_status = '已交车' AND c.created_date >= :start AND c.created_date < :end",
+    "related_tables": "dabench.car_leads"
+  },
+  {
+    "name": "订单利润",
+    "aliases": "线索利润,成单利润",
+    "definition": "成单线索（订单状态为已交车）的车型利润合计，按线索创建日期归属",
+    "formula": "SUM(CASE WHEN c.order_status = '已交车' THEN c.model_profit ELSE 0 END) FROM dabench.car_leads c WHERE c.created_date >= :start AND c.created_date < :end",
+    "related_tables": "dabench.car_leads"
+  },
+  {
+    "name": "线索ROI",
+    "aliases": "ROI,投资回报率,线索投资回报率",
+    "definition": "投资回报率 = (订单利润 − 线索价格) / 线索价格。订单利润只算成单线索的车型利润，线索价格是这些线索的线索成本合计，按线索创建日期归属",
+    "formula": "(SUM(CASE WHEN c.order_status = '已交车' THEN c.model_profit ELSE 0 END) - SUM(c.lead_cost)) / NULLIF(SUM(c.lead_cost), 0) FROM dabench.car_leads c WHERE c.created_date >= :start AND c.created_date < :end",
+    "related_tables": "dabench.car_leads"
+  },
+  {
+    "name": "闪电单",
+    "aliases": "闪电单数量,快速成单",
+    "definition": "订单创建日期（下定日期）− 线索创建日期 ≤ 7 天的订单，按线索创建日期归属",
+    "formula": "COUNT(*) FROM dabench.car_leads c WHERE c.is_ordered = 1 AND DATEDIFF(c.order_date, c.created_date) <= 7 AND c.created_date >= :start AND c.created_date < :end",
+    "related_tables": "dabench.car_leads"
+  },
+  {
+    "name": "客户评级",
+    "aliases": "客户等级,ABC评级,A级客户,B级客户,C级客户",
+    "definition": "按计划购车时间分类：A 级（Active）3 个月内，即 1周内、1个月内、1-3个月；B 级（Basic）3-6个月；C 级（Cold）6 个月以上或暂不确定，即 6-12个月、1年以上、暂不确定",
+    "formula": "CASE WHEN c.purchase_plan IN ('1周内', '1个月内', '1-3个月') THEN 'A' WHEN c.purchase_plan = '3-6个月' THEN 'B' ELSE 'C' END FROM dabench.car_leads c",
+    "related_tables": "dabench.car_leads"
+  },
+  {
+    "name": "贷款通过率",
+    "aliases": "通过率,审批通过率",
+    "definition": "贷款状态为 Approved 的申请数 ÷ 申请数 × 100，按申请日期归属",
+    "formula": "SUM(l.loan_status = 'Approved') / COUNT(*) * 100 FROM dabench.loan_applications l WHERE l.application_date >= :start AND l.application_date < :end",
+    "related_tables": "dabench.loan_applications"
+  },
+  {
+    "name": "平均利率",
+    "aliases": "申贷通过的平均利率,平均贷款利率",
+    "definition": "申请通过（贷款状态为 Approved）的贷款的平均利率，按申请日期归属",
+    "formula": "AVG(l.interest_rate) FROM dabench.loan_applications l WHERE l.loan_status = 'Approved' AND l.application_date >= :start AND l.application_date < :end",
+    "related_tables": "dabench.loan_applications"
+  },
+  {
+    "name": "高利贷",
+    "aliases": "高利贷数量,高息贷款",
+    "definition": "利率 > 法定利率 × 4，法定利率为 3%，即利率高于 12%，按申请日期归属",
+    "formula": "COUNT(*) FROM dabench.loan_applications l WHERE l.interest_rate > 12 AND l.application_date >= :start AND l.application_date < :end",
+    "related_tables": "dabench.loan_applications"
+  },
+  {
+    "name": "欺诈率",
+    "aliases": "欺诈比例",
+    "definition": "欺诈标识为 1 的申请数 ÷ 申请数 × 100，按申请日期归属",
+    "formula": "SUM(l.is_fraud) / COUNT(*) * 100 FROM dabench.loan_applications l WHERE l.application_date >= :start AND l.application_date < :end",
+    "related_tables": "dabench.loan_applications"
+  }
+]

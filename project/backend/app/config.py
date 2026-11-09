@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     # over it, only the tables a question needs. About half of the model's context:
     # deepseek-chat has 64K.
     schema_token_budget: int = 32000
+    # How the model gets the tables. "agentic": a table catalog, the tables of the recent
+    # SQL, and search_semantic for the rest. "full": every table in the prompt, as far as
+    # the budget allows.
+    schema_mode: str = "agentic"
+    # Folder under data/ holding the semantic layer of the business database.
+    semantic_seed: str = "seed"
+    # Fill an empty shop database with demo orders at start-up. Off for other datasets,
+    # which have no shop.orders table.
+    generate_demo_data: bool = True
 
     # Rerank model for table retrieval. Empty or "off" turns it off; the key falls back
     # to the embedding key, as both are Bailian keys.
@@ -126,7 +135,7 @@ class Settings(BaseSettings):
 
     @property
     def seed_dir(self) -> Path:
-        return self.data_dir / "seed"
+        return self.data_dir / self.semantic_seed
 
     def collection_name(self, suffix: str) -> str:
         return f"{self.qdrant_collection_prefix}_{suffix}"

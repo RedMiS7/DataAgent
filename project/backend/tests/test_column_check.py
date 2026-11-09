@@ -102,6 +102,24 @@ def test_an_unknown_alias_names_the_aliases_in_use() -> None:
     assert "查询里没有叫 x 的表或别名" in message and "c（channels）" in message
 
 
+def test_a_wrong_column_of_a_subquery_lists_its_columns() -> None:
+    # From an analysis in the evaluation: gmv is in curg, not cur.
+    message = _rejection(
+        "SELECT cur.refund_amt, cur.gmv FROM (SELECT r.product_id AS pid, "
+        "SUM(r.refund_amount) AS refund_amt FROM safe.refunds r GROUP BY r.product_id) cur "
+        "JOIN (SELECT oi.product_id AS pid, SUM(oi.quantity) AS gmv FROM safe.order_items oi "
+        "GROUP BY oi.product_id) curg ON curg.pid = cur.pid")
+    assert message.splitlines()[0] == "字段不存在：cur.gmv，子查询 cur 里没有 gmv 这一列。"
+    assert message.splitlines()[1] == "子查询 cur 的列：pid, refund_amt"
+
+
+def test_a_wrong_column_of_a_cte_lists_its_columns() -> None:
+    message = _rejection("WITH t AS (SELECT o.id AS order_id, o.paid_at FROM safe.orders o) "
+                         "SELECT t.paid FROM t")
+    assert message.startswith("字段不存在：t.paid，子查询 t 里没有 paid 这一列。最接近的列：paid_at。")
+    assert message.splitlines()[1] == "子查询 t 的列：order_id, paid_at"
+
+
 def test_without_columns_the_check_is_skipped() -> None:
     validate_and_limit("SELECT o.amount FROM safe.orders o", 500,
                        SQLPolicy(schema="safe", dialect="mysql"))

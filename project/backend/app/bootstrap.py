@@ -181,6 +181,8 @@ class Bootstrapper:
         return "done", ""
 
     def _prepare_demo_data(self) -> tuple[str, str]:
+        if not self.settings.generate_demo_data:
+            return "skipped", "这个数据集不生成演示数据"
         if demo_data.has_orders(self.settings):
             return "done", "已有数据，保持不变"
         with self._lock:

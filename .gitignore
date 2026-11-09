@@ -8,6 +8,7 @@
 .env
 .env.*
 !.env.example
+!.env.dabench.example
 
 # Python
 __pycache__/
@@ -25,6 +26,8 @@ dist/
 .vite/
 
 # Data and logs
+# Downloaded dataset files; re-download them from the links in project/DB/DABench.csv.
+project/DB/data/
 *.log
 *.sqlite
 *.db

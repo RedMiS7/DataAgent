@@ -28,6 +28,8 @@ class SafeSQL:
     sql: str
     limit_applied: bool = False
     original_limit: int | None = None
+    # The tables the query reads, lower case and without the schema; CTEs left out.
+    tables: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +122,18 @@ def _alias_tables(statement: exp.Expression) -> dict[str, str]:
     return tables
 
 
+def _derived_columns(statement: exp.Expression) -> dict[str, list[str]]:
+    """Alias -> output columns, for the subqueries and CTEs a query reads from."""
+    derived: dict[str, list[str]] = {}
+    for node in [*statement.find_all(exp.Subquery), *statement.find_all(exp.CTE)]:
+        alias = node.alias_or_name
+        body = node.this
+        if alias and isinstance(body, exp.Query):
+            derived[alias] = [select.alias_or_name for select in body.selects
+                              if select.alias_or_name]
+    return derived
+
+
 def _suggestions(name: str, tables: list[str], columns: Columns) -> list[str]:
     """Columns that look like ``name``: containing it first, then by spelling."""
     found: list[str] = []
@@ -144,6 +158,13 @@ def unknown_column_hint(sql: str, column: str, columns: Columns, dialect: str) -
         return ""
     aliases = _alias_tables(statement)
     qualifier, _, name = column.lower().rpartition(".")
+    derived = _derived_columns(statement)
+    if qualifier in derived and qualifier not in aliases:
+        listed = ", ".join(derived[qualifier]) or "（没有可识别的列）"
+        close = difflib.get_close_matches(name, derived[qualifier], n=MAX_SUGGESTIONS, cutoff=0.5)
+        return (f"字段不存在：{column}，子查询 {qualifier} 里没有 {name} 这一列。"
+                + (f"最接近的列：{'、'.join(close)}。" if close else "")
+                + f"\n子查询 {qualifier} 的列：{listed}")
     unknown_alias = bool(qualifier) and qualifier not in aliases
     if qualifier and not unknown_alias:
         tables = [aliases[qualifier]]
@@ -242,5 +263,8 @@ def validate_and_limit(sql: str, max_rows: int, policy: SQLPolicy) -> SafeSQL:
         statement = statement.limit(max_rows)
         limit_applied = True
 
+    cte_names = {cte.alias_or_name.lower() for cte in statement.find_all(exp.CTE)}
+    tables = tuple(dict.fromkeys(table.name.lower() for table in statement.find_all(exp.Table)
+                                 if table.name.lower() not in cte_names))
     return SafeSQL(sql=statement.sql(dialect=policy.dialect), limit_applied=limit_applied,
-                   original_limit=original_limit)
+                   original_limit=original_limit, tables=tables)

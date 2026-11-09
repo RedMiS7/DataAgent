@@ -22,6 +22,9 @@ JOIN_HINT = re.compile(r"关联\s*([\w.]+)")
 
 HEADER = "【表结构】下面每张表都列出了全部字段（字段名、类型、说明），没列出的字段就不存在。"
 REST_HEADER = "其他表（没有列出字段，要用时先调用 describe_table）："
+CATALOG_HEADER = ("【表目录】可以查的表。要用哪张表，先调用 search_semantic 检索，"
+                  "检索结果里有这张表的全部字段。")
+PREVIOUS_HEADER = "【上一轮用到的表】下面每张表都列出了全部字段，没列出的字段就不存在。"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +35,8 @@ class SchemaContext:
     # Every table of the database is listed.
     complete: bool
     tokens: int
+    # The model finds the other tables itself, with search_semantic.
+    agentic: bool = False
 
 
 def estimate_tokens(text: str) -> int:
@@ -182,3 +187,41 @@ def build_schema_context(columns: TableColumns, items: Iterable[SchemaItem],
             for table in rest))
     text = "\n\n".join(parts)
     return SchemaContext(text, kept, False, estimate_tokens(text))
+
+
+def build_agentic_context(columns: TableColumns, items: Iterable[SchemaItem],
+                          summaries: Mapping[str, str], previous: Sequence[str],
+                          budget: int, prefix: str) -> SchemaContext:
+    """The table catalog, and the tables of the recent SQL with all of their columns.
+
+    The catalog comes first: it is the same for every question. It drops the summaries
+    when it is over ``budget``, and goes when even the names are. The recent tables,
+    newest first, take what the catalog leaves.
+    """
+    items = list(items)
+    by_key = {(item.table_name, item.column_name): item for item in items}
+    catalog = "\n".join([CATALOG_HEADER, *(
+        f"- {prefix}{table}" + (f"：{summaries[table]}" if summaries.get(table) else "")
+        for table in columns)])
+    if estimate_tokens(catalog) > budget:
+        catalog = "\n".join([CATALOG_HEADER, *(f"- {prefix}{table}" for table in columns)])
+    if estimate_tokens(catalog) > budget:
+        catalog = ""
+    used = estimate_tokens(catalog)
+    kept: list[str] = []
+    sections: list[str] = []
+    for table in dict.fromkeys(bare_name(name, prefix) for name in previous):
+        if table not in columns:
+            continue
+        section = render_table(table, columns[table], by_key, prefix, summaries.get(table, ""))
+        cost = estimate_tokens(section)
+        if used + cost > budget:
+            break
+        kept.append(table)
+        sections.append(section)
+        used += cost
+    parts = [catalog] if catalog else []
+    if sections:
+        parts.append("\n\n".join([PREVIOUS_HEADER, *sections]))
+    text = "\n\n".join(parts)
+    return SchemaContext(text, kept, False, estimate_tokens(text), agentic=True)

@@ -225,6 +225,7 @@ def test_the_pipeline_falls_back_when_the_schema_cannot_be_read(
         raise OperationalError("SELECT", {}, Exception("down"))
 
     monkeypatch.setattr(pipeline, "schema_context", fail)
+    monkeypatch.setattr(pipeline, "agentic_context", fail)
     settings = Settings(_env_file=None)
     assert AskPipeline(settings, None)._schema(None, RetrievalBundle(), [], "t") is None  # type: ignore[arg-type]
     assert "读取表结构失败" in caplog.text
@@ -240,7 +241,7 @@ def test_the_rules_name_no_table_column_or_schema() -> None:
     from app.agent.pipeline import ANALYSIS_PROMPT
     for prompt in (SYSTEM_PROMPT, ANALYSIS_PROMPT):
         assert [term for term in BUSINESS_TERMS if term in prompt] == []
-    assert "按【指标口径】的公式和【表结构】的字段说明执行" in SYSTEM_PROMPT
+    assert "按【指标口径】的公式和表结构里的字段说明执行" in SYSTEM_PROMPT
     # A definition the user names is no attempt to get around the rules.
     assert "用户明确指定了口径时" in SYSTEM_PROMPT and "这不算绕过规则" in SYSTEM_PROMPT
 

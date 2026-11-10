@@ -35,23 +35,25 @@ export interface ChartAxes {
 }
 
 function isNumericColumn(table: TableBlock, index: number): boolean {
-  const values = table.rows.map((row) => row[index]).filter((value) => value !== null);
-  return values.length > 0 && values.every((value) => Number.isFinite(Number(value)));
+  const values = table.rows.map((row) => row[index]).filter((value) => value != null);
+  return values.length > 0 && values.every((value) =>
+    (typeof value === "number" || (typeof value === "string" && value.trim() !== "")) &&
+    Number.isFinite(Number(value)),
+  );
 }
 
 function isIdColumn(name: string): boolean {
   return /(^|_)id$/i.test(name);
 }
 
-/**
- * The backend always proposes the first two columns, which breaks on results
- * such as `product_id, name, amount`. Prefers a text label and a real measure.
- */
+/** Keep valid proposed axes and repair axes in older saved answers. */
 export function resolveAxes(table: TableBlock, chart: ChartSpec): ChartAxes | null {
   const columns = table.columns;
   const proposed = Math.max(0, columns.indexOf(chart.x_field));
   const textIndex = columns.findIndex((_, index) => !isNumericColumn(table, index));
-  const labelIndex = isIdColumn(columns[proposed]) && textIndex >= 0 ? textIndex : proposed;
+  const numericId = isIdColumn(columns[proposed]) &&
+    table.rows.some((row) => typeof row[proposed] === "number");
+  const labelIndex = numericId && textIndex >= 0 ? textIndex : proposed;
 
   const wanted = columns.indexOf(chart.y_fields[0] ?? "");
   const candidates = [wanted, ...columns.keys()].filter(
@@ -62,13 +64,24 @@ export function resolveAxes(table: TableBlock, chart: ChartSpec): ChartAxes | nu
   return candidates.length ? { labelIndex, valueIndex: candidates[0] } : null;
 }
 
-const DATE_LABEL = /^\d{4}-\d{2}(-\d{2})?/;
+const DATE_LABEL = /^(\d{4}-\d{2})(?:-(\d{2})(?:[T ].+)?)?$/;
 
-/** Column aliases hide time series from the backend, so check the values too. */
+function isDateLabel(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const parts = DATE_LABEL.exec(value);
+  if (!parts) return false;
+  const day = `${parts[1]}-${parts[2] ?? "01"}`;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().startsWith(day) &&
+    (value.length <= 10 || Number.isFinite(Date.parse(value)));
+}
+
+/** Recognize date labels in saved answers with older chart specs. */
 export function effectiveChartType(table: TableBlock, chart: ChartSpec): ChartSpec["type"] {
   const axes = resolveAxes(table, chart);
   if (!axes || chart.type === "table" || table.rows.length < 2) return chart.type;
-  const dated = table.rows.every((row) => DATE_LABEL.test(String(row[axes.labelIndex])));
+  const labels = table.rows.map((row) => row[axes.labelIndex]);
+  const dated = labels.every(isDateLabel) && new Set(labels).size === labels.length;
   return dated ? "line" : chart.type;
 }
 
@@ -95,7 +108,7 @@ export function buildChartOption(table: TableBlock, chart: ChartSpec, theme: The
   const tokens = CHART_TOKENS[theme];
   const rows = table.rows.slice(0, MAX_POINTS);
   const labels = rows.map((row) => String(row[axes.labelIndex]));
-  const values = rows.map((row) => Number(row[axes.valueIndex] ?? 0));
+  const values = rows.map((row) => row[axes.valueIndex] == null ? null : Number(row[axes.valueIndex]));
   const seriesName = table.columns[axes.valueIndex];
   const text = { color: tokens.muted, fontSize: 12 };
   const tooltip = {

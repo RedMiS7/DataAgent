@@ -20,6 +20,7 @@ from sqlalchemy.engine import Connection
 from ..agent.trace import CallTrace, timed
 from ..config import Settings
 from ..db.engine import business_connection
+from ..embedding.base import EmbeddingError
 from ..rerank import Reranker, RerankError
 from ..vector.base import VectorStoreError
 from . import repository
@@ -162,6 +163,9 @@ class TableSearcher:
             except (VectorStoreError, RuntimeError) as exc:
                 degraded = f"向量检索不可用：{exc}"
                 logger.warning("表检索只用关键词：%s", degraded)
+                if self.trace is not None and not self.retriever._uses_keyword_only():
+                    service = "embedding" if isinstance(exc, EmbeddingError) else "retrieval"
+                    self.trace.degrade(service, "向量检索不可用，已使用关键词检索。")
         if use_keyword or degraded:
             methods.append(self._keyword_lists(query, tables, items, metrics, cases, prefix))
 
@@ -284,6 +288,8 @@ class TableSearcher:
                 results = self.reranker.rerank(query, documents, top_n)
         except RerankError as exc:
             logger.warning("重排失败，按检索排序 error=%s", exc)
+            if self.trace is not None:
+                self.trace.degrade("rerank", "重排服务不可用，已沿用检索排序。")
             return by_retrieval, False, f"重排不可用：{exc}"
         return [(candidates[result.index], result.score) for result in results], True, ""
 

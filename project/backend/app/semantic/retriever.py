@@ -5,7 +5,7 @@ from sqlalchemy.engine import Connection
 from ..agent.trace import CallTrace, timed
 from ..config import Settings
 from ..db.engine import app_connection, business_connection
-from ..embedding.base import EmbeddingProvider
+from ..embedding.base import EmbeddingError, EmbeddingProvider
 from ..vector.base import VectorHit, VectorStore, VectorStoreError
 from . import repository
 from .models import (
@@ -77,6 +77,9 @@ class SemanticRetriever:
             fallback = self._keyword_fallback(question, bundle, schema_items, metrics, cases, entities)
             fallback.degraded = True
             fallback.degraded_reason = f"向量检索不可用：{exc}"
+            if trace is not None:
+                service = "embedding" if isinstance(exc, EmbeddingError) else "retrieval"
+                trace.degrade(service, "向量检索不可用，已使用关键词检索。")
             return fallback
 
     def _uses_keyword_only(self) -> bool:

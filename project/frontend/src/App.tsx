@@ -6,14 +6,12 @@ import Sidebar, { type View } from "./components/Sidebar";
 import { useChat } from "./hooks/useChat";
 import { useSetup } from "./hooks/useSetup";
 import { ThemeContext, useTheme } from "./hooks/useTheme";
-import AttributionPage from "./pages/AttributionPage";
 import ChatPage from "./pages/ChatPage";
 import ReviewPage from "./pages/ReviewPage";
 import SettingsPage from "./pages/SettingsPage";
 import SetupPage from "./pages/SetupPage";
 
 const PANE_TITLES: Record<Exclude<View, "chat">, string> = {
-  attribution: "异动归因",
   review: "案例审核",
   settings: "模型设置",
 };
@@ -51,7 +49,6 @@ function Shell({ theme, onToggleTheme }: { theme: "light" | "dark"; onToggleThem
               <span className="chat-title">{PANE_TITLES[view]}</span>
             </header>
             <div className="pane-body">
-              {view === "attribution" && <AttributionPage />}
               {view === "review" && <ReviewPage />}
               {view === "settings" && <SettingsPage />}
             </div>

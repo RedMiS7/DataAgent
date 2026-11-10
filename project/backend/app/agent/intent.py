@@ -17,7 +17,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ..api.schemas import Clarify, HistoryMessage, IntentInfo, RouteChoice
-from ..nl2sql.time_parser import TimeRange, parse_time_range
+from ..nl2sql.time_parser import TimeRange, parse_comparison, parse_time_range
 from ..semantic.models import Metric, SchemaItem
 
 ROUTES = ("query", "analysis", "direct")
@@ -453,11 +453,14 @@ def resolve_time(intent: Intent, parsed: TimeRange, as_of: date) -> tuple[TimeRa
     notes: list[str] = []
     time_range = parsed
     wording = intent.time_range.text
-    if wording and time_is_parsed(wording, as_of):
-        time_range = replace(parse_time_range(wording, as_of), baseline=parsed.baseline)
-    if intent.comparison and time_is_parsed(intent.comparison, as_of):
-        baseline = replace(parse_time_range(intent.comparison, as_of), baseline=None)
-        time_range = replace(time_range, baseline=baseline)
+    if wording:
+        named = parse_time_range(wording, as_of)
+        if not named.is_default:
+            time_range = replace(named, baseline=named.baseline or parsed.baseline)
+    if intent.comparison:
+        baseline = parse_comparison(intent.comparison, as_of, time_range)
+        if baseline is not None:
+            time_range = replace(time_range, baseline=baseline)
     if time_range.is_default and intent.time_range.needed:
         notes.append(DEFAULT_TIME_NOTE)
     return time_range, notes

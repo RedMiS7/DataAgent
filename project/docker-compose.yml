@@ -78,6 +78,7 @@ services:
       # Keys saved on the web page of the main app are shared.
       LOCAL_ENV_FILE: /config/.env.local
       MYSQL_BUSINESS_DB: dabench
+      AS_OF_DATE: ${DABENCH_AS_OF_DATE:-}
       MYSQL_APP_DB: dataagent_dabench
       QDRANT_COLLECTION_PREFIX: dabench
       SEMANTIC_SEED: seed_dabench

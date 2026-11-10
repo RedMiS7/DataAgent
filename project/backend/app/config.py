@@ -4,9 +4,13 @@ import os
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
+
+from .datasets import DatasetManifest, dataset_manifests
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 PROJECT_DIR = BACKEND_DIR.parent
@@ -26,7 +30,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     app_port: int = 8000
     local_env_file: Path = PROJECT_DIR / ".env.local"
-    as_of_date: date = date(2026, 10, 31)
+    as_of_date_override: date | None = Field(default=None, validation_alias="as_of_date")
     log_level: str = "INFO"
 
     mysql_host: str = "127.0.0.1"
@@ -151,6 +155,23 @@ class Settings(BaseSettings):
     @property
     def data_dir(self) -> Path:
         return PROJECT_DIR / "data"
+
+    @property
+    def dataset(self) -> DatasetManifest | None:
+        return dataset_manifests(self.data_dir).get(self.mysql_business_db)
+
+    @field_validator("as_of_date_override", mode="before")
+    @classmethod
+    def _ignore_blank_date(cls, value: Any) -> Any:
+        # Compose can explicitly clear a date from a shared env file.
+        return None if value == "" else value
+
+    @property
+    def as_of_date(self) -> date:
+        if self.as_of_date_override is not None:
+            return self.as_of_date_override
+        dataset = self.dataset
+        return dataset.as_of_date if dataset and dataset.as_of_date else date.today()
 
     @property
     def seed_dir(self) -> Path:

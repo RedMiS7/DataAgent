@@ -8,9 +8,9 @@ import ModelPicker from "./ModelPicker";
 
 const MAX_LENGTH = 500;
 const PLACEHOLDERS: Record<AskMode, string> = {
-  auto: "问问你的生意，例如：上个月 GMV 是多少？最近生意怎么样？",
-  query: "问问你的生意，例如：上个月哪个商品退货率最高？",
-  analysis: "说说想分析什么，例如：分析一下最近30天的销量",
+  auto: "输入你想了解的问题",
+  query: "输入你想查询的问题",
+  analysis: "说说想分析什么",
 };
 
 interface Props {
@@ -19,6 +19,7 @@ interface Props {
   model: string;
   modelsLive: boolean;
   mode: AskMode;
+  example?: string;
   focusKey: string;
   onModelChange: (id: string) => void;
   onModeChange: (mode: AskMode) => void;
@@ -27,7 +28,8 @@ interface Props {
 }
 
 export default function Composer({
-  streaming, models, model, modelsLive, mode, focusKey, onModelChange, onModeChange, onSend, onStop,
+  streaming, models, model, modelsLive, mode, example, focusKey,
+  onModelChange, onModeChange, onSend, onStop,
 }: Props) {
   const [text, setText] = useState("");
   const inputRef = useRef<TextAreaRef>(null);
@@ -60,7 +62,7 @@ export default function Composer({
           variant="borderless"
           maxLength={MAX_LENGTH}
           autoSize={{ minRows: 1, maxRows: 8 }}
-          placeholder={PLACEHOLDERS[mode]}
+          placeholder={example ? `${PLACEHOLDERS[mode]}，例如 ${example}` : PLACEHOLDERS[mode]}
           aria-label="输入问题"
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}

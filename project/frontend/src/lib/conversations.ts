@@ -142,6 +142,8 @@ export function restoreConversations(
 
 /** The backend rejects longer history messages, purposes and more queries. */
 const HISTORY_MAX_CHARS = 4000;
+const HISTORY_MAX_SQL_CHARS = 16000;
+const HISTORY_MAX_TOTAL_SQL_CHARS = 40000;
 const HISTORY_MAX_PURPOSE = 200;
 const HISTORY_MAX_QUERIES = 10;
 const TIME_RANGE_KEYS = ["label", "start", "end_exclusive"];
@@ -155,13 +157,15 @@ export function answerQueries(answer: AnswerPayload): HistoryQuery[] {
   const queries = answer.results?.length
     ? answer.results.map((result) => ({ purpose: result.purpose, sql: result.sql }))
     : answer.sql ? [{ purpose: answer.question, sql: answer.sql }] : [];
+  let remainingSqlChars = HISTORY_MAX_TOTAL_SQL_CHARS;
   return queries
     .filter((query) => query.sql)
     .slice(0, HISTORY_MAX_QUERIES)
-    .map((query) => ({
-      purpose: query.purpose.slice(0, HISTORY_MAX_PURPOSE),
-      sql: query.sql.slice(0, HISTORY_MAX_CHARS),
-    }));
+    .map(({ purpose, sql }) => {
+      const fits = sql.length <= Math.min(HISTORY_MAX_SQL_CHARS, remainingSqlChars);
+      if (fits) remainingSqlChars -= sql.length;
+      return { purpose: purpose.slice(0, HISTORY_MAX_PURPOSE), sql: fits ? sql : "" };
+    });
 }
 
 function timeRange(answer: AnswerPayload): Record<string, string> {

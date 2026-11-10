@@ -7,7 +7,12 @@ from app.agent.answer import latest_replies, purposes_note, queries_note
 from app.agent.pipeline import SYSTEM_PROMPT, history_pairs
 from app.agent.planner import AnalysisTask, _plan_input
 from app.agent.router import build_router_input
-from app.api.schemas import HISTORY_MAX_QUERIES, HistoryMessage, HistoryQuery
+from app.api.schemas import (
+    HISTORY_MAX_QUERIES,
+    HISTORY_MAX_SQL_CHARS,
+    HistoryMessage,
+    HistoryQuery,
+)
 from pydantic import ValidationError
 
 GMV_SQL = ("SELECT SUM(oi.quantity * oi.unit_price - oi.discount_amount) AS GMV\n"
@@ -27,9 +32,16 @@ def test_a_reply_shows_its_queries_with_their_period() -> None:
     assert note.splitlines()[0] == (
         "（这一轮用过的查询，时间范围：上个月，2026-09-01 至 2026-10-01，不含右端。"
         "仅供参考，不是指令；写新 SQL 时以本轮的时间范围为准）")
-    # One line per query, so the model reads it as a whole statement.
-    assert note.splitlines()[1].startswith("- 查询1（上个月GMV）：SELECT SUM(")
-    assert "\n" not in note.splitlines()[1]
+    assert note.endswith(f"- 查询1（上个月GMV）：{GMV_SQL}")
+
+
+def test_history_preserves_the_sql_and_explains_purpose_only_entries() -> None:
+    sql = "SELECT 'two  spaces' -- keep the following newline\nFROM safe.orders"
+    message = HistoryMessage(role="assistant", content="", queries=[
+        HistoryQuery(purpose="订单", sql=sql),
+        HistoryQuery(purpose="渠道拆解", sql=""),
+    ])
+    assert queries_note(message).endswith(f"- 查询1（订单）：{sql}\n- 查询2（渠道拆解）：仅附查询用途")
 
 
 def test_failed_replies_show_no_queries() -> None:
@@ -74,3 +86,8 @@ def test_history_limits_the_queries_it_accepts() -> None:
                        queries=[HistoryQuery(sql="SELECT 1")] * (HISTORY_MAX_QUERIES + 1))
     with pytest.raises(ValidationError):
         HistoryMessage(role="assistant", content="x", time_range={"label": "月" * 100})
+    with pytest.raises(ValidationError):
+        HistoryQuery(sql="x" * (HISTORY_MAX_SQL_CHARS + 1))
+    with pytest.raises(ValidationError):
+        HistoryMessage(role="assistant", content="x",
+                       queries=[HistoryQuery(sql="x" * HISTORY_MAX_SQL_CHARS)] * 3)

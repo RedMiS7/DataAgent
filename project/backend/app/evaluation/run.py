@@ -15,11 +15,12 @@ from typing import Any
 
 from ..agent.pipeline import AskPipeline
 from ..config import PROJECT_DIR, Settings
+from ..datasets import DatasetManifest
 from . import runner
 from .runner import CaseResult, EvalReport, Job
 from .store import RunStore
 
-MODES = ("questions", "analysis", "routing", "security", "attribution", "all")
+MODES = ("questions", "analysis", "routing", "security", "all")
 
 
 @dataclass(slots=True)
@@ -57,24 +58,23 @@ def git_commit() -> str:
     return os.environ.get("APP_GIT_COMMIT", "")
 
 
-def build_jobs(settings: Settings, options: RunOptions, dataset: str,
+def build_jobs(settings: Settings, options: RunOptions, dataset: DatasetManifest,
                pipeline: AskPipeline | None) -> list[Job]:
     """The jobs of one mode for this dataset; without a pipeline (no model), only the
     cases that need none. ``all`` leaves out the analysis-only run."""
-    questions = runner.select_cases(runner.load_questions(), dataset)
-    if options.categories:
-        questions = [item for item in questions if item["category"] in options.categories]
     mode, limit = options.mode, options.limit
     jobs: list[Job] = []
-    if mode in ("questions", "all") and pipeline is not None:
-        jobs += runner.question_jobs(settings, pipeline, questions, limit, options.history_sql)
-    if mode == "analysis" and pipeline is not None:
-        jobs += runner.analysis_jobs(settings, pipeline, questions, limit)
-    if mode in ("routing", "all"):
-        jobs += runner.routing_jobs(
-            settings, runner.select_cases(runner.load_routing_cases(), dataset), limit)
-    if mode in ("attribution", "all"):
-        jobs += runner.attribution_jobs(settings, questions, limit)
+    if mode in ("questions", "analysis", "all") and pipeline is not None:
+        questions = runner.load_dataset_questions(dataset)
+        if options.categories:
+            questions = [item for item in questions if item["category"] in options.categories]
+        if mode == "analysis":
+            jobs += runner.analysis_jobs(settings, pipeline, questions, limit)
+        else:
+            jobs += runner.question_jobs(settings, pipeline, questions, limit, options.history_sql)
+    if mode in ("routing", "all") and dataset.eval is not None and dataset.eval.routing is not None:
+        routes = runner.load_routing_cases(dataset.eval.routing)
+        jobs += runner.routing_jobs(settings, runner.select_cases(routes, dataset.id), limit)
     if mode in ("security", "all"):
         jobs += runner.security_jobs(settings, pipeline, dataset)
     return jobs
@@ -140,9 +140,13 @@ def execute(store: RunStore, run_id: int, jobs: list[Job], options: RunOptions,
     run as done, cancelled (Ctrl-C) or failed. Returns all its results, earlier ones too."""
     earlier = store.results(run_id)
     done = {(result.id, result.attempt) for result in earlier}
-    total = len(jobs) * options.repeat
+    # A resumed run may already contain results from the retired fixed-attribution group.
+    # Keep those results and count them as completed without scheduling new fixed jobs.
+    retired = sum(result.kind == "fixed_attribution" for result in earlier)
+    total = len(jobs) * options.repeat + retired
     store.set_total(run_id, total)
-    count = len([key for key in done if key[0] in {job.id for job in jobs}])
+    job_ids = {job.id for job in jobs}
+    count = sum(case_id in job_ids for case_id, _ in done) + retired
 
     def saved(result: CaseResult) -> None:
         nonlocal count

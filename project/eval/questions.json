@@ -465,11 +465,11 @@
       "orders",
       "order_items"
     ],
-    "expected_dimensions": [
-      "整体",
-      "类目",
-      "商品"
-    ]
+    "expected_dimensions": {
+      "整体": ["整体", "总体", "大盘", "总GMV", "总订单", "总销售"],
+      "类目": ["类目", "品类"],
+      "商品": ["商品", "SKU", "单品"]
+    }
   },
   {
     "id": "n02",
@@ -483,10 +483,10 @@
       "orders",
       "order_items"
     ],
-    "expected_dimensions": [
-      "整体",
-      "渠道"
-    ]
+    "expected_dimensions": {
+      "整体": ["整体", "总体", "大盘", "总GMV", "总订单", "总销售"],
+      "渠道": ["渠道"]
+    }
   },
   {
     "id": "n03",
@@ -499,10 +499,10 @@
     "expected_tables": [
       "refunds"
     ],
-    "expected_dimensions": [
-      "退款",
-      "商品"
-    ]
+    "expected_dimensions": {
+      "退款": ["退款", "退货"],
+      "商品": ["商品", "SKU", "单品"]
+    }
   },
   {
     "id": "n04",
@@ -517,9 +517,9 @@
       "order_items",
       "products"
     ],
-    "expected_dimensions": [
-      "商品"
-    ]
+    "expected_dimensions": {
+      "商品": ["商品", "SKU", "单品"]
+    }
   },
   {
     "id": "n05",
@@ -533,9 +533,9 @@
       "orders",
       "order_items"
     ],
-    "expected_dimensions": [
-      "整体"
-    ]
+    "expected_dimensions": {
+      "整体": ["整体", "总体", "大盘", "总GMV", "总订单", "总销售"]
+    }
   },
   {
     "id": "n06",
@@ -549,11 +549,11 @@
       "orders",
       "order_items"
     ],
-    "expected_dimensions": [
-      "整体",
-      "类目",
-      "渠道"
-    ]
+    "expected_dimensions": {
+      "整体": ["整体", "总体", "大盘", "总GMV", "总订单", "总销售"],
+      "类目": ["类目", "品类"],
+      "渠道": ["渠道"]
+    }
   },
   {
     "id": "n07",
@@ -566,9 +566,9 @@
     "expected_tables": [
       "ad_daily_stats"
     ],
-    "expected_dimensions": [
-      "广告"
-    ]
+    "expected_dimensions": {
+      "广告": ["广告", "投放", "ROI", "推广"]
+    }
   },
   {
     "id": "n08",
@@ -582,9 +582,9 @@
       "orders",
       "channels"
     ],
-    "expected_dimensions": [
-      "渠道"
-    ]
+    "expected_dimensions": {
+      "渠道": ["渠道"]
+    }
   },
   {
     "id": "n09",
@@ -597,10 +597,10 @@
     "expected_tables": [
       "refunds"
     ],
-    "expected_dimensions": [
-      "退款",
-      "商品"
-    ]
+    "expected_dimensions": {
+      "退款": ["退款", "退货"],
+      "商品": ["商品", "SKU", "单品"]
+    }
   },
   {
     "id": "n10",
@@ -614,9 +614,9 @@
       "orders",
       "shipments"
     ],
-    "expected_dimensions": [
-      "物流"
-    ]
+    "expected_dimensions": {
+      "物流": ["物流", "承运", "发货", "配送"]
+    }
   },
   {
     "id": "n11",
@@ -632,9 +632,9 @@
       "products",
       "categories"
     ],
-    "expected_dimensions": [
-      "类目"
-    ]
+    "expected_dimensions": {
+      "类目": ["类目", "品类"]
+    }
   },
   {
     "id": "n12",
@@ -647,9 +647,9 @@
     "expected_tables": [
       "orders"
     ],
-    "expected_dimensions": [
-      "客户"
-    ]
+    "expected_dimensions": {
+      "客户": ["客户", "新客", "老客", "复购"]
+    }
   },
   {
     "id": "n13",
@@ -663,10 +663,10 @@
       "orders",
       "order_items"
     ],
-    "expected_dimensions": [
-      "整体",
-      "渠道"
-    ]
+    "expected_dimensions": {
+      "整体": ["整体", "总体", "大盘", "总GMV", "总订单", "总销售"],
+      "渠道": ["渠道"]
+    }
   },
   {
     "id": "n14",
@@ -680,9 +680,9 @@
       "orders",
       "order_items"
     ],
-    "expected_dimensions": [
-      "地区"
-    ]
+    "expected_dimensions": {
+      "地区": ["地区", "省份", "城市", "区域"]
+    }
   },
   {
     "id": "n15",
@@ -698,10 +698,10 @@
       "products",
       "categories"
     ],
-    "expected_dimensions": [
-      "类目",
-      "商品"
-    ]
+    "expected_dimensions": {
+      "类目": ["类目", "品类"],
+      "商品": ["商品", "SKU", "单品"]
+    }
   },
   {
     "id": "t01",

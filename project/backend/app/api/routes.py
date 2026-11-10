@@ -4,17 +4,19 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from ..agent.pipeline import AskPipeline
 from ..agent.scope_model import build_chat_model
 from ..agent.session import log_tag
-from ..analysis import attribute_return_rate
 from ..bootstrap import Bootstrapper, KeyValidationError, validate_keys
 from ..config import SAVED_KEY_FIELDS, Settings, save_keys
+from ..datasets import SuggestedQuestion
 from ..db.engine import app_connection, business_engine, ping
 from ..embedding import build_embedder
 from ..semantic import repository
@@ -82,19 +84,31 @@ def setup_retry(request: Request) -> SetupStatus:
     return bootstrapper.status()
 
 
+class MetaResponse(BaseModel):
+    as_of_date: date
+    suggested_questions: list[SuggestedQuestion]
+    sql_max_rows: int
+    sql_timeout_ms: int
+    llm_configured: bool
+    embedding_configured: bool
+    qdrant_available: bool
+    business_db_available: bool
+
+
 @router.get("/meta")
-def meta(request: Request) -> dict[str, Any]:
+def meta(request: Request) -> MetaResponse:
     settings = _settings(request)
-    store = request.app.state.vector_store
-    return {
-        "as_of_date": settings.as_of_date.isoformat(),
-        "sql_max_rows": settings.sql_max_rows,
-        "sql_timeout_ms": settings.sql_timeout_ms,
-        "llm_configured": request.app.state.llm is not None,
-        "embedding_configured": request.app.state.embedder is not None,
-        "qdrant_available": store is not None,
-        "business_db_available": ping(business_engine(settings)),
-    }
+    dataset = settings.dataset
+    return MetaResponse(
+        as_of_date=settings.as_of_date,
+        suggested_questions=dataset.suggested_questions if dataset else [],
+        sql_max_rows=settings.sql_max_rows,
+        sql_timeout_ms=settings.sql_timeout_ms,
+        llm_configured=request.app.state.llm is not None,
+        embedding_configured=request.app.state.embedder is not None,
+        qdrant_available=request.app.state.vector_store is not None,
+        business_db_available=ping(business_engine(settings)),
+    )
 
 
 @router.post("/ask", response_model=AnswerPayload)
@@ -136,30 +150,6 @@ async def ask_stream(request: Request, payload: AskRequest) -> EventSourceRespon
             await task
 
     return EventSourceResponse(events())
-
-
-@router.post("/attribution/return-rate")
-def attribution(request: Request, payload: AskRequest) -> dict[str, Any]:
-    result = attribute_return_rate(_settings(request), payload.question)
-    return {
-        "metric": result.metric,
-        "current": result.current,
-        "previous": result.previous,
-        "current_rate": result.current_rate,
-        "previous_rate": result.previous_rate,
-        "delta_points": result.delta_points,
-        "total_current_refund": result.total_current_refund,
-        "total_previous_refund": result.total_previous_refund,
-        "summary": result.summary,
-        "summary_source": result.summary_source,
-        "factors": [
-            {"dimension": factor.dimension, "name": factor.name,
-             "current_refund": factor.current_refund, "previous_refund": factor.previous_refund,
-             "delta": factor.delta, "share": factor.share}
-            for factor in result.factors
-        ],
-        "sql": result.sql,
-    }
 
 
 @router.post("/feedback")

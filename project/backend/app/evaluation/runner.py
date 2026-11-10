@@ -13,7 +13,7 @@ import json
 import re
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass, field, fields
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -29,15 +29,20 @@ from ..agent.pipeline import AskPipeline, load_catalog
 from ..agent.router import catalog_note, question_note, route_question
 from ..agent.scope_model import build_chat_model
 from ..agent.sql_intent import BLOCK_PREFIX, WARNING_PREFIX
-from ..analysis import attribute_return_rate
-from ..api.schemas import AnswerPayload, HistoryMessage, HistoryQuery
-from ..config import PROJECT_DIR, Settings
+from ..api.schemas import (
+    HISTORY_MAX_CHARS,
+    HISTORY_MAX_QUERIES,
+    HISTORY_MAX_SQL_CHARS,
+    HISTORY_MAX_TOTAL_SQL_CHARS,
+    AnswerPayload,
+    HistoryMessage,
+    HistoryQuery,
+)
+from ..config import Settings
+from ..datasets import DatasetManifest
 from ..db.engine import eval_app_connection, eval_business_connection
 from ..nl2sql.executor import normalize_value
 from ..safety.validator import SQLValidationError, check_read_only, validate_and_limit
-
-# Case files: eval/ in the project, copied to /eval in the image.
-EVAL_DIR = PROJECT_DIR / "eval"
 
 # How MySQL and the validator say a column does not exist.
 FIELD_ERROR_MARKERS = ("Unknown column", "字段不存在")
@@ -110,7 +115,7 @@ class CaseResult:
     backend_ms: dict[str, int] = field(default_factory=dict)
     # Failed calls by "service:error type", e.g. "model:429" or "rerank:timeout".
     call_errors: dict[str, int] = field(default_factory=dict)
-    # Embedding or rerank calls that failed, so retrieval fell back to keywords or order.
+    # Retrieval fallbacks, independently of provider attempts that recovered.
     degraded_calls: int = 0
     # Hashes of the inputs of the SQL that ran and of embedding and rerank calls, to count
     # repeated calls over a run.
@@ -177,8 +182,11 @@ class Activity:
         tool_calls = Counter(item["name"] for item in calls if item["kind"] == "tool")
         backend_ms = {kind: sum(item["duration_ms"] for item in calls if item["kind"] == kind)
                       for kind in BACKEND_KINDS}
-        errors = Counter(f"{item['kind']}:{item.get('error_type') or 'other'}"
-                         for item in calls if not item["ok"] and item["kind"] != "tool")
+        errors = Counter(
+            f"{item['name'] if item['kind'] == 'retry' else item['kind']}:"
+            f"{item.get('error_type') or 'other'}"
+            for item in calls if not item["ok"] and item["kind"] != "tool")
+        degradations = sum(item["kind"] == "degradation" for item in calls)
 
         def hashes(kind: str) -> list[str]:
             return [item["input_hash"] for item in calls
@@ -196,8 +204,9 @@ class Activity:
                                   for item in failed),
             backend_ms={kind: ms for kind, ms in backend_ms.items() if ms},
             call_errors=dict(errors),
-            degraded_calls=sum(not item["ok"] for item in calls
-                               if item["kind"] in ("embedding", "rerank")),
+            # Old archives have only the final failed embedding/rerank call.
+            degraded_calls=degradations or sum(not item["ok"] for item in calls
+                                              if item["kind"] in ("embedding", "rerank")),
             # Blocked SQL never reached the database, so only the queries that ran count.
             sql_hashes=[item["sql_hash"] for item in queries
                         if item["status"] != "blocked" and item.get("sql_hash")],
@@ -496,21 +505,19 @@ class EvalReport:
         return {**self.summary(), "cases": [asdict(case) for case in self.cases]}
 
 
-# The business database each dataset's cases are written for.
-DATASET_DATABASES: dict[str, str] = {"ecommerce_demo": "safe", "dabench": "dabench"}
-
-
-def dataset_for(settings: Settings) -> str:
-    """The dataset whose cases fit the business database the settings point to."""
-    for dataset, database in DATASET_DATABASES.items():
-        if database == settings.mysql_business_db:
-            return dataset
-    raise RuntimeError(f"业务库 {settings.mysql_business_db} 没有对应的评测题，"
-                       f"已知的数据集：{DATASET_DATABASES}")
+def evaluation_dataset(settings: Settings) -> DatasetManifest:
+    """The manifest for the active business database, with an evaluation file configured."""
+    dataset = settings.dataset
+    if dataset is None or dataset.eval is None:
+        raise RuntimeError(f"业务库 {settings.mysql_business_db} 没有配置评测题，"
+                           "请在数据集清单中填写 eval")
+    return dataset
 
 
 def select_cases(cases: list[dict], dataset: str) -> list[dict]:
     """Cases written for this dataset; a case without a dataset is an error in the file."""
+    if not isinstance(cases, list) or any(not isinstance(case, dict) for case in cases):
+        raise ValueError("评测题集必须是由对象组成的列表")
     missing = [case.get("id", "?") for case in cases if not case.get("dataset")]
     if missing:
         raise ValueError(f"这些评测题没有标注 dataset：{missing}")
@@ -527,26 +534,30 @@ def case_meta(case: dict) -> dict[str, Any]:
             "scored": not suspect, "unscored_reason": SUSPECT if suspect else ""}
 
 
-def load_questions(path: Path | None = None) -> list[dict]:
-    payload = json.loads((path or EVAL_DIR / "questions.json").read_text(encoding="utf-8"))
-    return list(payload)
+def load_dataset_questions(dataset: DatasetManifest) -> list[dict]:
+    files = dataset.eval
+    assert files is not None
+    if files.questions.suffix.lower() == ".csv":
+        assert files.reviews is not None
+        cases = load_dabench_cases(files.questions, files.reviews, dataset_id=dataset.id)
+    else:
+        cases = json.loads(files.questions.read_text(encoding="utf-8"))
+    return select_cases(cases, dataset.id)
 
 
-def load_security_cases(path: Path | None = None) -> dict:
-    return json.loads((path or EVAL_DIR / "security_cases.json").read_text(encoding="utf-8"))
+def load_security_cases(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 DABENCH_CATEGORIES = {"归因": "attribution", "自由提问": "open"}
 
 
-def load_dabench_cases(questions_path: Path | None = None,
-                       reviews_path: Path | None = None) -> list[dict]:
+def load_dabench_cases(questions_path: Path, reviews_path: Path,
+                       *, dataset_id: str = "dabench") -> list[dict]:
     """DABench questions from DB/DABench.csv, each with its review from dabench_reviews.json.
 
     Every question must have a review, so a new question is checked before it is scored.
     """
-    questions_path = questions_path or EVAL_DIR.parent / "DB" / "DABench.csv"
-    reviews_path = reviews_path or EVAL_DIR / "dabench_reviews.json"
     reviews = {item["query_num"]: item for item in
                json.loads(reviews_path.read_text(encoding="utf-8"))["reviews"]}
     with questions_path.open(encoding="utf-8-sig", newline="") as handle:
@@ -557,7 +568,7 @@ def load_dabench_cases(questions_path: Path | None = None,
     return [{
         "id": f"dab-{row['query_num']}",
         "category": DABENCH_CATEGORIES[row["query_type"]],
-        "dataset": "dabench",
+        "dataset": dataset_id,
         "kind": "data",
         "mode": "analysis",
         "question": row["query"],
@@ -739,11 +750,15 @@ def reply_history(answer: AnswerPayload, with_queries: bool = True) -> HistoryMe
     if with_queries and answer.status in ("ok", "empty", "partial"):
         pairs = ([(item.purpose, item.sql) for item in answer.results] if answer.results
                  else [(answer.question, answer.sql)] if answer.sql else [])
-        queries = [HistoryQuery(purpose=purpose[:200], sql=sql[:4000])
-                   for purpose, sql in pairs if sql][:10]
+        remaining_sql_chars = HISTORY_MAX_TOTAL_SQL_CHARS
+        for purpose, sql in [(purpose, sql) for purpose, sql in pairs if sql][:HISTORY_MAX_QUERIES]:
+            fits = len(sql) <= min(HISTORY_MAX_SQL_CHARS, remaining_sql_chars)
+            if fits:
+                remaining_sql_chars -= len(sql)
+            queries.append(HistoryQuery(purpose=purpose[:200], sql=sql if fits else ""))
     time_range = {key: value[:64] for key, value in answer.time_range.items()
                   if key in ("label", "start", "end_exclusive") and value} if queries else {}
-    return HistoryMessage(role="assistant", content=content[:4000], mode=answer.mode,
+    return HistoryMessage(role="assistant", content=content[:HISTORY_MAX_CHARS], mode=answer.mode,
                           status=answer.status, queries=queries, time_range=time_range,
                           intent=answer.intent.data if answer.intent and answer.intent.data
                           else None)
@@ -839,25 +854,12 @@ def score_direct(answer: AnswerPayload) -> tuple[bool, str]:
     return passed, f"status={answer.status}, sql={'有' if answer.sql else '无'}"
 
 
-# Words that show a plan step or query looked at a dimension.
-DIMENSION_WORDS: dict[str, tuple[str, ...]] = {
-    "整体": ("整体", "总体", "大盘", "总GMV", "总订单", "总销售"),
-    "类目": ("类目", "品类"),
-    "渠道": ("渠道",),
-    "商品": ("商品", "SKU", "单品"),
-    "地区": ("地区", "省份", "城市", "区域"),
-    "广告": ("广告", "投放", "ROI", "推广"),
-    "退款": ("退款", "退货"),
-    "物流": ("物流", "承运", "发货", "配送"),
-    "客户": ("客户", "新客", "老客", "复购"),
-}
-
-
-def covered_dimensions(answer: AnswerPayload, expected: list[str]) -> list[str]:
+def covered_dimensions(answer: AnswerPayload,
+                       expected: Mapping[str, Sequence[str]]) -> list[str]:
     """The expected dimensions named by the plan steps or the shown queries."""
     text = " ".join([*(step.goal for step in answer.plan),
                      *(item.purpose for item in answer.results)])
-    return [name for name in expected if any(word in text for word in DIMENSION_WORDS[name])]
+    return [name for name, words in expected.items() if any(word and word in text for word in words)]
 
 
 def score_analysis(answer: AnswerPayload, question: dict) -> tuple[bool, str]:
@@ -866,7 +868,10 @@ def score_analysis(answer: AnswerPayload, question: dict) -> tuple[bool, str]:
     Whether every figure was found in the query results is not scored: that check
     flags figures the model computed itself (see plan 2.1).
     """
-    expected = question.get("expected_dimensions") or []
+    expected = question.get("expected_dimensions") or {}
+    if isinstance(expected, list):
+        # Older local cases can still match their literal dimension names.
+        expected = {name: [name] for name in expected}
     covered = covered_dimensions(answer, expected)
     passed = (answer.status == "ok" and answer.summary_source == "model"
               and len(answer.results) >= 1 and len(covered) == len(expected))
@@ -1099,14 +1104,21 @@ def analysis_jobs(settings: Settings, pipeline: AskPipeline, questions: list[dic
                   limit: int | None = None,
                   read_activity: ActivityReader | None = None) -> list[Job]:
     read_activity = read_activity or archive_reader(settings)
-    selected = [item for item in questions if item["category"] == "analysis"]
-    return [_job(question, lambda attempt, question=question: ask_analysis(
-        settings, pipeline, question, attempt, read_activity), category="analysis")
-        for question in (selected[:limit] if limit else selected)]
+    selected = [item for item in questions
+                if item["category"] == "analysis" or item.get("mode") == "analysis"]
+    jobs: list[Job] = []
+    for question in (selected[:limit] if limit else selected):
+        if question["category"] == "analysis":
+            jobs.append(_job(question, lambda attempt, question=question: ask_analysis(
+                settings, pipeline, question, attempt, read_activity)))
+        else:
+            jobs.append(_job(question, lambda attempt, question=question: ask_question(
+                settings, pipeline, question, attempt, read_activity=read_activity)))
+    return jobs
 
 
-def load_routing_cases(path: Path | None = None) -> list[dict]:
-    return json.loads((path or EVAL_DIR / "routing_cases.json").read_text(encoding="utf-8"))
+def load_routing_cases(path: Path) -> list[dict]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def route_case(settings: Settings, case: dict, attempt: int = 1) -> CaseResult:
@@ -1137,31 +1149,6 @@ def route_case(settings: Settings, case: dict, attempt: int = 1) -> CaseResult:
 def routing_jobs(settings: Settings, cases: list[dict], limit: int | None = None) -> list[Job]:
     return [_job(case, lambda attempt, case=case: route_case(settings, case, attempt))
             for case in (cases[:limit] if limit else cases)]
-
-
-REQUIRED_FACTORS = {"product", "channel", "carrier"}
-
-
-def fixed_attribution_case(settings: Settings, question: dict, attempt: int = 1) -> CaseResult:
-    result = attribute_return_rate(settings, question["question"])
-    dimensions = {factor.dimension for factor in result.factors}
-    # The fixed return-rate attribution is scored apart from the same questions
-    # answered by the pipeline, so one question is not counted twice.
-    return CaseResult(
-        id=f"fa-{question['id']}", category="attribution", question=question["question"],
-        passed=REQUIRED_FACTORS.issubset(dimensions) and bool(result.summary),
-        dataset=question["dataset"], kind="fixed_attribution", attempt=attempt, status="ok",
-        detail=f"dimensions={sorted(dimensions)}, factors={len(result.factors)}",
-    )
-
-
-def attribution_jobs(settings: Settings, questions: list[dict],
-                     limit: int | None = None) -> list[Job]:
-    selected = [item for item in questions if item["category"] == "attribution"]
-    return [_job(question, lambda attempt, question=question: fixed_attribution_case(
-        settings, question, attempt), case_id=f"fa-{question['id']}",
-        meta={"dataset": question["dataset"], "kind": "fixed_attribution"})
-        for question in (selected[:limit] if limit else selected)]
 
 
 def dangerous_sql_case(settings: Settings, case: dict, attempt: int = 1) -> CaseResult:
@@ -1198,16 +1185,19 @@ def injection_case(pipeline: AskPipeline, case: dict, attempt: int = 1) -> CaseR
                       detail=detail, sql=answer.sql, log_id=answer.log_id)
 
 
-def security_jobs(settings: Settings, pipeline: AskPipeline | None, dataset: str) -> list[Job]:
+def security_jobs(settings: Settings, pipeline: AskPipeline | None,
+                  dataset: DatasetManifest) -> list[Job]:
     """Security cases written for this dataset; their SQL names its tables."""
-    cases = load_security_cases()
+    if dataset.eval is None or dataset.eval.security is None:
+        return []
+    cases = load_security_cases(dataset.eval.security)
     jobs = [_job(case, lambda attempt, case=case: dangerous_sql_case(settings, case, attempt),
                  category="dangerous_sql")
-            for case in select_cases(cases["dangerous_sql"], dataset)]
+            for case in select_cases(cases["dangerous_sql"], dataset.id)]
     if pipeline is not None:
         jobs += [_job(case, lambda attempt, case=case: injection_case(pipeline, case, attempt),
                       category="prompt_injection")
-                 for case in select_cases(cases["prompt_injection"], dataset)]
+                 for case in select_cases(cases["prompt_injection"], dataset.id)]
     return jobs
 
 
@@ -1237,13 +1227,8 @@ def evaluate_routing(settings: Settings, cases: list[dict],
     return run_in_order(routing_jobs(settings, cases, limit))
 
 
-def evaluate_attribution(settings: Settings, questions: list[dict],
-                         limit: int | None = None) -> EvalReport:
-    return run_in_order(attribution_jobs(settings, questions, limit))
-
-
 def evaluate_security(settings: Settings, pipeline: AskPipeline | None,
-                      dataset: str) -> EvalReport:
+                      dataset: DatasetManifest) -> EvalReport:
     return run_in_order(security_jobs(settings, pipeline, dataset))
 
 

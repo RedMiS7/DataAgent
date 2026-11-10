@@ -7,8 +7,14 @@
 .env
 .env.*
 !.env.example
-eval/results
-eval/run_eval.py
+data/**
+!data/*/manifest.json
+!data/*/semantic_tables.json
+!data/*/schema_items.json
+!data/*/metrics.json
+!data/initdb/02_app_schema.sql
+eval/**
+!eval/*.json
 DB/data
 frontend/*.tsbuildinfo
 frontend/vite.config.js

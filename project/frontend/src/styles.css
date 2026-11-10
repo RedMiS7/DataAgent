@@ -1211,7 +1211,7 @@ button:focus-visible {
   font-weight: 500;
 }
 
-/* Attribution and review panes */
+/* Review and settings panes */
 .pane-body {
   flex: 1;
   min-height: 0;
@@ -1221,20 +1221,6 @@ button:focus-visible {
 
 .review-layout {
   margin-top: 0;
-}
-
-.meta-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px 20px;
-  font-size: 13px;
-  color: var(--ink-2);
-  margin: 8px 0 12px;
-}
-
-.meta-grid strong {
-  color: var(--ink);
-  font-weight: 600;
 }
 
 .mono {

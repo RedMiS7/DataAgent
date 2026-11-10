@@ -1,0 +1,16 @@
+{
+  "id": "ecommerce_demo",
+  "database": "safe",
+  "as_of_date": "2026-10-31",
+  "suggested_questions": [
+    {"tag": "排行", "text": "上个月销量最高的 10 个商品是哪些？"},
+    {"tag": "趋势", "text": "分析最近 30 天 GMV 的趋势和变化原因。", "mode": "analysis"},
+    {"tag": "投放", "text": "最近 30 天各渠道的 ROI 是多少？"},
+    {"tag": "物流", "text": "上个月各承运商的平均签收时长是多少小时？"}
+  ],
+  "eval": {
+    "questions": "../../eval/questions.json",
+    "routing": "../../eval/routing_cases.json",
+    "security": "../../eval/security_cases.json"
+  }
+}

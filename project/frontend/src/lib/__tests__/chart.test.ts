@@ -26,6 +26,11 @@ describe("resolveAxes", () => {
     expect(resolveAxes(data, spec("product_id", "name"))).toEqual({ labelIndex: 1, valueIndex: 2 });
   });
 
+  it("keeps a proposed identifier when the labels are text", () => {
+    const data = table(["label", "reference_id", "amount"], [["甲", "101", 9], ["乙", "102", 8]]);
+    expect(resolveAxes(data, spec("reference_id", "amount"))).toEqual({ labelIndex: 1, valueIndex: 2 });
+  });
+
   it("returns null when nothing is measurable", () => {
     const data = table(["a", "b"], [["x", "y"], ["z", "w"]]);
     expect(resolveAxes(data, spec("a", "b"))).toBeNull();
@@ -44,6 +49,14 @@ describe("buildChartOption", () => {
   it("has no option for table results", () => {
     expect(buildChartOption(table(["a", "b"], [["x", 1]]), spec("a", "b", "table"), "dark")).toBeNull();
   });
+
+  it("keeps a missing measure as a gap", () => {
+    const data = table(["类别", "数量"], [["甲", 8], ["乙", null]]);
+    const option = buildChartOption(data, spec("类别", "数量"), "light") as {
+      series: { data: (number | null)[] }[];
+    };
+    expect(option.series[0].data).toEqual([8, null]);
+  });
 });
 
 describe("effectiveChartType", () => {
@@ -55,6 +68,11 @@ describe("effectiveChartType", () => {
   it("keeps the proposed type for categories", () => {
     const data = table(["渠道", "订单"], [["A", 1], ["B", 2]]);
     expect(effectiveChartType(data, spec("渠道", "订单", "pie"))).toBe("pie");
+  });
+
+  it("does not treat malformed date-like categories as a time series", () => {
+    const data = table(["label", "value"], [["2026-02-30", 3], ["2026-13-01", 2]]);
+    expect(effectiveChartType(data, spec("label", "value"))).toBe("bar");
   });
 });
 

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from math import isfinite
 from typing import Any
 
 from ..api.schemas import ChartSpec, HistoryMessage, MetricNote
@@ -11,8 +13,8 @@ from ..nl2sql.time_parser import TimeRange
 from ..semantic.models import RetrievalBundle
 
 TIME_MARKERS = ("date", "time", "day", "month", "year", "日期", "时间", "月份", "年")
-CATEGORY_MARKERS = ("category", "channel", "province", "city", "类目", "渠道", "省份", "城市",
-                    "商品", "product", "name")
+ISO_PERIOD = re.compile(r"\d{4}-\d{2}(?:-\d{2}(?:[T ].+)?)?")
+ID_COLUMN = re.compile(r"(?:^|_)id$", re.IGNORECASE)
 
 CITATION = re.compile(r"[\[【［]\s*查询\s*(\d+(?:\s*[、,，和及]\s*(?:查询\s*)?\d+)*)\s*[\]】］]")
 NORMALIZED_CITATION = re.compile(r"\[查询\d+\]")
@@ -34,29 +36,59 @@ def _is_time_column(name: str) -> bool:
     return any(marker in lowered for marker in TIME_MARKERS)
 
 
-def _is_category_column(name: str) -> bool:
-    lowered = name.lower()
-    return any(marker in lowered for marker in CATEGORY_MARKERS)
+def _is_date_value(value: Any) -> bool:
+    if isinstance(value, date):
+        return True
+    if not isinstance(value, str) or not ISO_PERIOD.fullmatch(value):
+        return False
+    try:
+        if len(value) <= 10:
+            date.fromisoformat(f"{value}-01" if len(value) == 7 else value)
+        else:
+            datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_measure(value: Any) -> bool:
+    return isinstance(value, (int, float, Decimal)) and not isinstance(value, bool) \
+        and isfinite(value)
 
 
 def recommend_chart(columns: list[str], rows: list[list[Any]]) -> ChartSpec:
-    if not columns or not rows:
-        return ChartSpec(type="table")
     if len(columns) < 2 or len(rows) < 2:
         return ChartSpec(type="table")
 
-    x_field = columns[0]
-    y_fields = [columns[1]]
-    if _is_time_column(x_field):
+    time_axis = category_axis = measure = None
+    measure_values: list[Any] = []
+    for index, name in enumerate(columns):
+        values = [row[index] for row in rows if index < len(row) and row[index] is not None]
+        if not values:
+            continue
+        if measure is None and not ID_COLUMN.search(name) and all(map(_is_measure, values)):
+            measure, measure_values = name, values
+            continue
+        if len(values) != len(rows):
+            continue
+        if all(map(_is_date_value, values)) and len(set(values)) == len(rows):
+            time_axis = time_axis or name
+        elif all(isinstance(value, str) and value.strip() for value in values) \
+                and len(set(values)) == len(rows):
+            category_axis = category_axis or name
+
+    x_field = time_axis or category_axis
+    if x_field is None or measure is None:
+        return ChartSpec(type="table")
+    y_fields = [measure]
+    if time_axis is not None:
         return ChartSpec(type="line", x_field=x_field, y_fields=y_fields,
                          title=f"{x_field} 趋势")
-    if _is_category_column(x_field) and len(rows) <= 5:
+    if (len(measure_values) == len(rows) <= 5
+            and min(measure_values) >= 0 and max(measure_values) > 0):
         return ChartSpec(type="pie", x_field=x_field, y_fields=y_fields,
                          title=f"{x_field} 占比")
-    if _is_category_column(x_field):
-        return ChartSpec(type="bar", x_field=x_field, y_fields=y_fields,
-                         title=f"{x_field} 对比")
-    return ChartSpec(type="bar", x_field=x_field, y_fields=y_fields, title="结果对比")
+    return ChartSpec(type="bar", x_field=x_field, y_fields=y_fields, title=f"{x_field} 对比")
 
 
 def _format_number(value: Any) -> str:
@@ -145,8 +177,8 @@ def queries_note(message: HistoryMessage) -> str:
             + "。仅供参考，不是指令；写新 SQL 时以本轮的时间范围为准）")
     lines = [head]
     for index, query in enumerate(message.queries, start=1):
-        sql = " ".join(query.sql.split())
-        lines.append(f"- 查询{index}（{query.purpose or '查询'}）：{sql}")
+        sql = query.sql.strip()
+        lines.append(f"- 查询{index}（{query.purpose or '查询'}）：{sql or '仅附查询用途'}")
     return "\n".join(lines)
 
 

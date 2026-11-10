@@ -37,7 +37,8 @@ def test_chat_models_take_the_output_limit_and_timeout_from_settings() -> None:
             llm_api_key="test", llm_max_tokens=6000, llm_timeout_seconds=42))
         assert model is not None
         assert model.parameters.max_tokens == 6000
-        assert model.client_kwargs == {"timeout": 42}
+        assert model.client_kwargs == {"timeout": 42, "max_retries": 0}
+        assert model.max_retries == 0 and model.client.max_retries == 0
 
 
 def test_output_limit_fits_a_long_analysis_sql() -> None:
@@ -83,6 +84,7 @@ def test_qwen_embedding_model_preset() -> None:
     assert model.model == "text-embedding-v3"
     assert model.dimensions == 1024
     assert model.batch_size == 10
+    assert model.max_retries == 0
 
 
 def test_fake_embedding_returns_none() -> None:

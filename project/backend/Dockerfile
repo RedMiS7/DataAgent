@@ -20,8 +20,8 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
-COPY data/seed /data/seed
-COPY data/seed_dabench /data/seed_dabench
+# The build context allows only manifests, semantic seeds and the app schema under data/.
+COPY data/ /data/
 # Evaluation cases, so python -m app.evaluation runs in the container without a mount.
 COPY eval/*.json /eval/
 COPY DB/DABench.csv /DB/DABench.csv

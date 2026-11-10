@@ -102,6 +102,19 @@ def test_resume_skips_saved_cases_and_keeps_them_in_the_report() -> None:
         ("q1", 1, False), ("q1", 2, True), ("q2", 1, True), ("q2", 2, True)]
 
 
+def test_resume_counts_but_does_not_repeat_completed_fixed_attribution() -> None:
+    fixed = CaseResult(id="fa-a01", category="attribution", question="归因", passed=True,
+                       dataset="d", kind="fixed_attribution")
+    store = MemoryStore([fixed])
+    progress: list[tuple[int, int]] = []
+    report = execute(store, 1, [_job("q1")], RunOptions(concurrency=1),
+                     lambda result, done, total: progress.append((done, total)))
+
+    assert store.total == 2 and progress == [(2, 2)]
+    assert [case.id for case in report.cases] == ["q1", "fa-a01"]
+    assert report.as_dict()["groups"]["d/fixed_attribution"]["passed"] == 1
+
+
 def test_a_case_that_raises_fails_alone() -> None:
     def broken(attempt: int) -> CaseResult:
         raise RuntimeError("model went away")
@@ -170,19 +183,31 @@ def test_multiturn_cases_keep_their_turns_in_order_when_run_at_once(
 
 def test_build_jobs_follows_the_mode_and_the_model() -> None:
     settings = Settings(_env_file=None, mysql_eval_password="pw")
+    dataset = runner.evaluation_dataset(settings)
     pipeline = _SlowPipeline()
-    every = build_jobs(settings, RunOptions(mode="all"), "ecommerce_demo", pipeline)  # type: ignore[arg-type]
+    every = build_jobs(settings, RunOptions(mode="all"), dataset, pipeline)  # type: ignore[arg-type]
     ids = [job.id for job in every]
-    assert "q01" in ids and "fa-a01" in ids and any(job.category == "dangerous_sql"
-                                                   for job in every)
-    analysis = build_jobs(settings, RunOptions(mode="analysis"), "ecommerce_demo", pipeline)  # type: ignore[arg-type]
+    assert {"q01", "a01"}.issubset(ids) and "fa-a01" not in ids
+    assert any(job.category == "dangerous_sql" for job in every)
+    analysis = build_jobs(settings, RunOptions(mode="analysis"), dataset, pipeline)  # type: ignore[arg-type]
     assert analysis and {job.category for job in analysis} == {"analysis"}
     # Without a model only the cases that need none are left.
-    security = build_jobs(settings, RunOptions(mode="security"), "ecommerce_demo", None)
+    security = build_jobs(settings, RunOptions(mode="security"), dataset, None)
     assert {job.category for job in security} == {"dangerous_sql"}
     picked = build_jobs(settings, RunOptions(mode="questions", categories=["metric"], limit=2),
-                        "ecommerce_demo", pipeline)  # type: ignore[arg-type]
+                        dataset, pipeline)  # type: ignore[arg-type]
     assert [job.category for job in picked] == ["metric", "metric"]
+
+
+@pytest.mark.parametrize("mode", ["all", "analysis", "questions"])
+def test_dabench_jobs_use_only_its_reviewed_cases(mode: str) -> None:
+    settings = Settings(_env_file=None, mysql_business_db="dabench", mysql_eval_password="pw")
+    dataset = runner.evaluation_dataset(settings)
+    jobs = build_jobs(settings, RunOptions(mode=mode), dataset, _SlowPipeline())  # type: ignore[arg-type]
+    assert len(jobs) == 10
+    assert {job.category for job in jobs} == {"attribution", "open"}
+    assert all(job.id.startswith("dab-") and job.meta["dataset"] == "dabench" for job in jobs)
+    assert not next(job for job in jobs if job.id == "dab-101").meta["scored"]
 
 
 def test_options_survive_a_resume() -> None:

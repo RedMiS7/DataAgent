@@ -10,7 +10,9 @@ from typing import Any
 
 import httpx
 import pytest
+from app.agent.trace import CallTrace, text_hash
 from app.config import Settings
+from app.embedding import EmbeddingError
 from app.rerank import RerankError, RerankResult, build_reranker
 from app.rerank.dashscope import DashScopeReranker
 from app.rerank.fake import FakeReranker
@@ -195,12 +197,15 @@ def test_only_the_best_candidates_go_to_the_rerank_model(semantic: None) -> None
 
 def test_a_failing_rerank_keeps_the_retrieval_order(semantic: None,
                                                     caplog: pytest.LogCaptureFixture) -> None:
-    search = _searcher(reranker=FailingReranker()).search(
+    searcher = _searcher(reranker=FailingReranker())
+    searcher.trace = CallTrace()
+    search = searcher.search(
         "各渠道的订单数", None, use_keyword=False, complete=False)  # type: ignore[arg-type]
     assert search.table_names[:2] == ["orders", "ad_daily_stats"]
     assert not search.reranked
     assert search.rerank_note == "重排不可用：重排模型返回 HTTP 401：InvalidApiKey"
     assert "重排失败" in caplog.text
+    assert searcher.trace.degradation_warnings() == ["重排服务不可用，已沿用检索排序。"]
 
 
 def test_without_a_rerank_model_the_note_says_so(semantic: None) -> None:
@@ -213,6 +218,21 @@ def test_without_vectors_keywords_still_find_tables(semantic: None) -> None:
                                          rerank=False, complete=False)
     assert search.degraded.startswith("向量检索不可用：qdrant down")
     assert "shipments" in search.table_names
+
+
+def test_a_failing_embedder_marks_keyword_fallback(semantic: None) -> None:
+    class FailingEmbedder(StubEmbedder):
+        def embed(self, texts: Sequence[str]) -> list[list[float]]:
+            raise EmbeddingError("embedding request failed: HTTP 503")
+
+    searcher = _searcher()
+    searcher.trace = CallTrace()
+    searcher.retriever.embedder = FailingEmbedder()
+    search = searcher.search("上个月各承运商发了多少包裹", None,  # type: ignore[arg-type]
+                             rerank=False, complete=False)
+    assert "shipments" in search.table_names
+    assert [(record.kind, record.name, record.error_type) for record in searcher.trace.records] == [
+        ("embedding", "stub-embedding", "5xx"), ("degradation", "embedding", "")]
 
 
 def test_cases_point_to_the_tables_of_their_sql(semantic: None) -> None:
@@ -284,13 +304,14 @@ class _Response:
 def _post(monkeypatch: pytest.MonkeyPatch, response: Any) -> list[dict]:
     sent: list[dict] = []
 
-    def post(url: str, json: dict, timeout: float, headers: dict) -> Any:
+    async def post(client: httpx.AsyncClient, url: str, json: dict, timeout: float,
+                   headers: dict) -> Any:
         sent.append({"url": url, "json": json, "timeout": timeout, "headers": headers})
         if isinstance(response, Exception):
             raise response
         return response
 
-    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
     return sent
 
 
@@ -318,11 +339,13 @@ def test_dashscope_sends_the_native_request(monkeypatch: pytest.MonkeyPatch) -> 
 ])
 def test_dashscope_errors_say_what_went_wrong(monkeypatch: pytest.MonkeyPatch, response: Any,
                                               message: str) -> None:
-    _post(monkeypatch, response)
+    sent = _post(monkeypatch, response)
     with pytest.raises(RerankError) as caught:
         RERANKER.rerank("q", ["a"], 1)
     assert str(caught.value).startswith(message)
     assert "sk-secret" not in str(caught.value)
+    transient = isinstance(response, httpx.TimeoutException) or response.status_code == 502
+    assert len(sent) == (3 if transient else 1)
 
 
 def test_dashscope_with_nothing_to_rank_makes_no_request(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -355,8 +378,6 @@ def test_the_fake_reranker_prefers_shared_words() -> None:
 
 
 def test_a_traced_search_records_its_embedding_and_rerank_calls(semantic: None) -> None:
-    from app.agent.trace import CallTrace, text_hash
-
     class LimitedReranker:
         model_name = "limited"
 
@@ -373,7 +394,8 @@ def test_a_traced_search_records_its_embedding_and_rerank_calls(semantic: None) 
 
     kinds = [(record.kind, record.name, record.ok, record.error_type) for record in trace.records]
     assert kinds == [("embedding", "stub-embedding", True, ""), ("rerank", "order-rerank", True, ""),
-                     ("embedding", "stub-embedding", True, ""), ("rerank", "limited", False, "429")]
+                     ("embedding", "stub-embedding", True, ""), ("rerank", "limited", False, "429"),
+                     ("degradation", "rerank", True, "")]
     assert trace.records[0].input_hash == text_hash("各渠道的订单数")
     # The same query and candidates send the same rerank input.
     assert trace.records[1].input_hash == trace.records[3].input_hash

@@ -39,6 +39,8 @@ export default function ChatPage({ chat, onOpenSidebar }: Props) {
 
   const { active, streaming } = chat;
   const messages = active.messages;
+  const suggestions = meta?.suggested_questions ?? [];
+  const example = suggestions.find((item) => mode === "auto" || item.mode === mode)?.text;
 
   useEffect(() => {
     void fetchModels().then((list) => {
@@ -128,7 +130,9 @@ export default function ChatPage({ chat, onOpenSidebar }: Props) {
 
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="chat-column">
-          {messages.length === 0 && <EmptyState asOfDate={meta?.as_of_date} onPick={send} />}
+          {messages.length === 0 && (
+            <EmptyState asOfDate={meta?.as_of_date} suggestions={suggestions} onPick={send} />
+          )}
           {messages.map((item) =>
             item.role === "user" ? (
               <UserBubble
@@ -177,6 +181,7 @@ export default function ChatPage({ chat, onOpenSidebar }: Props) {
           model={model}
           modelsLive={modelsLive}
           mode={mode}
+          example={example}
           focusKey={active.id}
           onModelChange={(id) => {
             setModel(id);

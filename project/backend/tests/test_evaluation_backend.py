@@ -84,3 +84,17 @@ def test_the_figures_are_in_each_group_of_the_report() -> None:
     report = EvalReport([_case("q1", Activity.from_archive([], [_call("model", "m", 5)]), 10)])
     backend = report.summary()["groups"]["d/data"]["metrics"]["backend"]
     assert backend["time_split_ms"]["model"] == 5.0
+
+
+def test_recovered_attempts_do_not_count_as_degradation() -> None:
+    retry = _call("retry", "rerank", 0, ok=False, error_type="429")
+    recovered = Activity.from_archive([], [retry, _call("rerank", "qwen", 25)])
+    assert recovered.call_errors == {"rerank:429": 1}
+    assert recovered.degraded_calls == 0
+
+    degraded = Activity.from_archive([], [
+        retry, retry, _call("rerank", "qwen", 25, ok=False, error_type="429"),
+        _call("degradation", "rerank", 0),
+    ])
+    assert degraded.call_errors == {"rerank:429": 3}
+    assert degraded.degraded_calls == 1

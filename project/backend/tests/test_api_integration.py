@@ -40,11 +40,5 @@ def test_ask_and_feedback() -> None:
         assert feedback.status_code == 200
 
 
-def test_attribution_returns_all_dimensions() -> None:
-    with TestClient(app) as client:
-        response = client.post("/api/attribution/return-rate",
-                               json={"question": "最近的退货率为什么涨了",
-                                     "session_id": "integration-attribution"})
-    assert response.status_code == 200
-    dimensions = {factor["dimension"] for factor in response.json()["factors"]}
-    assert {"product", "channel", "carrier"}.issubset(dimensions)
+def test_fixed_attribution_route_was_removed() -> None:
+    assert "/api/attribution/return-rate" not in app.openapi()["paths"]

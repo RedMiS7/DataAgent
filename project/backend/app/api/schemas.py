@@ -34,6 +34,8 @@ RequestMode = Literal["auto", "query", "analysis"]
 
 HISTORY_MAX_MESSAGES = 200
 HISTORY_MAX_CHARS = 4000
+HISTORY_MAX_SQL_CHARS = 16000
+HISTORY_MAX_TOTAL_SQL_CHARS = 40000
 # An analysis answer shows at most 10 queries.
 HISTORY_MAX_QUERIES = 10
 # The intent of a reply, as JSON text.
@@ -50,7 +52,8 @@ class HistoryQuery(BaseModel):
     """A query an earlier reply rests on: what it was for and its SQL."""
 
     purpose: str = Field(default="", max_length=200)
-    sql: str = Field(max_length=HISTORY_MAX_CHARS)
+    # Empty when only the purpose fits in the conversation history.
+    sql: str = Field(max_length=HISTORY_MAX_SQL_CHARS)
 
 
 class HistoryMessage(BaseModel):
@@ -70,6 +73,13 @@ class HistoryMessage(BaseModel):
     # follow-up or an answer to a clarification builds on it. It comes from the client:
     # the model reads it as reference, and the result is checked again.
     intent: dict[str, Any] | None = None
+
+    @field_validator("queries")
+    @classmethod
+    def _queries_fit(cls, value: list[HistoryQuery]) -> list[HistoryQuery]:
+        if sum(len(query.sql) for query in value) > HISTORY_MAX_TOTAL_SQL_CHARS:
+            raise ValueError("历史查询的 SQL 总长度超出上限")
+        return value
 
     @field_validator("intent")
     @classmethod
@@ -107,7 +117,7 @@ class PlanStepInfo(BaseModel):
     id: int
     goal: str
     origin: Literal["plan", "supplement"] = "plan"
-    status: Literal["pending", "running", "done", "failed"]
+    status: Literal["pending", "running", "done", "failed", "skipped"]
 
 
 class CallUsage(BaseModel):

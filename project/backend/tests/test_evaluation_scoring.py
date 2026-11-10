@@ -69,7 +69,7 @@ def test_unverified_figures_no_longer_fail_an_analysis() -> None:
     answer = AnswerPayload(question="q", status="ok", summary="GMV 涨了 12.5%。",
                            summary_source="model", warnings=["结论里的 12.5% 未能在查询结果中核对"],
                            results=[QueryResult(index=1, purpose="整体 GMV", sql="SELECT 1")])
-    passed, detail = runner.score_analysis(answer, {"expected_dimensions": ["整体"]})
+    passed, detail = runner.score_analysis(answer, {"expected_dimensions": {"整体": ["整体"]}})
     assert passed and "数字未核对" not in detail
 
 

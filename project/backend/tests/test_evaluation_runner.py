@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
-from app.api.schemas import AnswerPayload, Failure, HistoryMessage, TableBlock
+from app.api.schemas import AnswerPayload, Failure, HistoryMessage, QueryResult, TableBlock
+from app.config import PROJECT_DIR, Settings
+from app.datasets import dataset_manifests
 from app.evaluation import runner
 from app.evaluation.runner import (
     Activity,
@@ -18,7 +21,12 @@ from app.evaluation.runner import (
     report_metrics,
     shift_dates,
 )
+from app.nl2sql.time_parser import parse_time_range
 from app.safety.validator import SQLValidationError
+
+DEMO = runner.evaluation_dataset(Settings(_env_file=None, mysql_business_db="safe"))
+DABENCH = runner.evaluation_dataset(Settings(_env_file=None, mysql_business_db="dabench"))
+assert DEMO.eval and DEMO.eval.routing and DEMO.eval.security
 
 
 def test_loose_compare_allows_extra_columns_in_any_order() -> None:
@@ -107,6 +115,34 @@ def test_reply_history_carries_the_queries_like_the_frontend() -> None:
     assert reply.time_range == period
     failed = AnswerPayload(question="q", status="error", sql="SELECT amount", time_range=period)
     assert reply_history(failed).queries == [] and reply_history(failed).time_range == {}
+
+
+def test_reply_history_keeps_complete_sql_within_its_budget() -> None:
+    long_sql = "SELECT '" + "x" * 5005 + "'"
+    budget_sql = "SELECT '" + "x" * 15991 + "'"
+    too_long = budget_sql + " LIMIT 1"
+    answer = AnswerPayload(question="q", results=[
+        QueryResult(index=index, purpose=f"用途{index}", sql=sql)
+        for index, sql in enumerate([long_sql, too_long, budget_sql, budget_sql, budget_sql], 1)
+    ])
+    assert [(query.purpose, query.sql) for query in reply_history(answer).queries] == [
+        ("用途1", long_sql), ("用途2", ""), ("用途3", budget_sql),
+        ("用途4", budget_sql), ("用途5", ""),
+    ]
+
+
+@pytest.mark.parametrize("case_id, start, end, baseline_start, baseline_end", [
+    ("dab-105", "2025-02-01", "2025-03-01", "2024-02-01", "2024-03-01"),
+    ("dab-107", "2024-11-01", "2024-12-01", "2024-10-01", "2024-11-01"),
+])
+def test_dabench_questions_anchor_their_baselines_to_named_months(
+        case_id: str, start: str, end: str, baseline_start: str, baseline_end: str) -> None:
+    case = next(item for item in runner.load_dataset_questions(DABENCH) if item["id"] == case_id)
+    period = parse_time_range(case["question"], date(2026, 10, 31))
+    assert (period.start.isoformat(), period.end.isoformat()) == (start, end)
+    assert period.baseline is not None
+    assert (period.baseline.start.isoformat(), period.baseline.end.isoformat()) == (
+        baseline_start, baseline_end)
 
 
 def _answer(sql: str = "", rows: list[list] | None = None, status: str = "ok") -> AnswerPayload:
@@ -262,7 +298,7 @@ def test_direct_case_passes_only_on_a_text_answer_without_sql() -> None:
 
 
 def test_new_cases_are_well_formed() -> None:
-    questions = runner.load_questions()
+    questions = runner.load_dataset_questions(DEMO)
     ids = [item["id"] for item in questions]
     assert len(ids) == len(set(ids))
     for item in questions:
@@ -274,7 +310,7 @@ def test_new_cases_are_well_formed() -> None:
         for message in item.get("history_messages") or []:
             HistoryMessage(**message)
 
-    routes = runner.load_routing_cases()
+    routes = runner.load_routing_cases(DEMO.eval.routing)
     route_ids = [item["id"] for item in routes]
     assert len(route_ids) == len(set(route_ids))
     assert {item["expected_route"] for item in routes} == {"query", "analysis", "direct"}
@@ -358,7 +394,8 @@ def test_a_consistency_case_without_an_earlier_result_fails_clearly(
 
 
 def test_consistency_cases_are_well_formed() -> None:
-    cases = [item for item in runner.load_questions() if item["category"] == "consistency"]
+    cases = [item for item in runner.load_dataset_questions(DEMO)
+             if item["category"] == "consistency"]
     assert len(cases) >= 5
     for item in cases:
         assert item["turns"] and item["match"] == "loose" and not item["expected_sql"]
@@ -404,10 +441,10 @@ def test_report_scores_each_dataset_and_kind_apart() -> None:
 
 
 def test_cases_are_picked_by_the_business_database() -> None:
-    assert runner.dataset_for(type("S", (), {"mysql_business_db": "safe"})()) == "ecommerce_demo"
-    assert runner.dataset_for(type("S", (), {"mysql_business_db": "dabench"})()) == "dabench"
+    assert (DEMO.database, DEMO.id) == ("safe", "ecommerce_demo")
+    assert (DABENCH.database, DABENCH.id) == ("dabench", "dabench")
     with pytest.raises(RuntimeError, match="other"):
-        runner.dataset_for(type("S", (), {"mysql_business_db": "other"})())
+        runner.evaluation_dataset(Settings(_env_file=None, mysql_business_db="other"))
 
     cases = [{"id": "a", "dataset": "ecommerce_demo"}, {"id": "b", "dataset": "dabench"}]
     assert [case["id"] for case in runner.select_cases(cases, "dabench")] == ["b"]
@@ -428,18 +465,19 @@ KINDS = {"data", "routing", "rule", "behavior"}
 
 
 def test_every_case_has_a_dataset_a_kind_and_a_unique_id() -> None:
-    security = runner.load_security_cases()
+    security = runner.load_security_cases(DEMO.eval.security)
     groups = {
-        "questions": runner.load_questions(),
-        "routing": runner.load_routing_cases(),
+        "questions": runner.load_dataset_questions(DEMO),
+        "routing": runner.load_routing_cases(DEMO.eval.routing),
         "dangerous_sql": security["dangerous_sql"],
         "prompt_injection": security["prompt_injection"],
-        "dabench": runner.load_dabench_cases(),
+        "dabench": runner.load_dataset_questions(DABENCH),
     }
+    known_ids = {manifest.id for manifest in dataset_manifests(PROJECT_DIR / "data").values()}
     ids: list[str] = []
     for name, cases in groups.items():
         for case in cases:
-            assert case["dataset"] in runner.DATASET_DATABASES, (name, case["id"])
+            assert case["dataset"] in known_ids, (name, case["id"])
             assert case["kind"] in KINDS, (name, case["id"])
             ids.append(case["id"])
     assert len(ids) == len(set(ids))
@@ -450,7 +488,7 @@ def test_every_case_has_a_dataset_a_kind_and_a_unique_id() -> None:
 
 
 def test_dabench_cases_carry_their_review() -> None:
-    cases = {case["id"]: case for case in runner.load_dabench_cases()}
+    cases = {case["id"]: case for case in runner.load_dataset_questions(DABENCH)}
     assert len(cases) == 10
     assert {case["category"] for case in cases.values()} == {"attribution", "open"}
     assert not runner.case_meta(cases["dab-101"])["scored"]
@@ -469,19 +507,6 @@ def test_dabench_question_without_a_review_is_an_error(tmp_path: Path) -> None:
     reviews.write_text(json.dumps({"reviews": []}), encoding="utf-8")
     with pytest.raises(ValueError, match="1"):
         runner.load_dabench_cases(questions, reviews)
-
-
-def test_fixed_attribution_is_scored_apart_from_the_pipeline(monkeypatch) -> None:
-    from types import SimpleNamespace
-    result = SimpleNamespace(summary="ok", factors=[SimpleNamespace(dimension=name) for name in
-                                                    ("product", "channel", "carrier")])
-    monkeypatch.setattr(runner, "attribute_return_rate", lambda settings, question: result)
-    question = {"id": "a01", "category": "attribution", "question": "退货率为什么涨了？",
-                "dataset": "ecommerce_demo", "kind": "data"}
-    report = runner.evaluate_attribution(None, [question])
-    case = report.cases[0]
-    assert (case.id, case.kind, case.passed) == ("fa-a01", "fixed_attribution", True)
-    assert list(report.as_dict()["groups"]) == ["ecommerce_demo/fixed_attribution"]
 
 
 class _ReferenceConnection:

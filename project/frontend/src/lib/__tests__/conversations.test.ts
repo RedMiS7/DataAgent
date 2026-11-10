@@ -330,4 +330,18 @@ describe("answerQueries", () => {
     expect(queries).toHaveLength(10);
     expect(queries[0].purpose).toHaveLength(200);
   });
+
+  it("preserves long SQL whole and keeps just the purpose when it exceeds the budget", () => {
+    const longSql = `SELECT '${"x".repeat(5005)}'`;
+    const budgetSql = `SELECT '${"x".repeat(15991)}'`;
+    const results = [longSql, `${budgetSql} LIMIT 1`, budgetSql, budgetSql, budgetSql]
+      .map((sql, index) => ({ purpose: `用途${index + 1}`, sql }));
+    expect(answerQueries({ ...base, status: "ok", results } as never)).toEqual([
+      { purpose: "用途1", sql: longSql },
+      { purpose: "用途2", sql: "" },
+      { purpose: "用途3", sql: budgetSql },
+      { purpose: "用途4", sql: budgetSql },
+      { purpose: "用途5", sql: "" },
+    ]);
+  });
 });

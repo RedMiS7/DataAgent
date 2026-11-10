@@ -3,7 +3,6 @@ import type { AskMode } from "./lib/modes";
 import { parseSseBlock, splitSseBuffer } from "./lib/sse";
 import type {
   AnswerPayload,
-  AttributionResult,
   CaseOut,
   HistoryMessage,
   MetaInfo,
@@ -134,16 +133,6 @@ export async function askOnce(question: string, sessionId: string): Promise<Answ
   });
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as AnswerPayload;
-}
-
-export async function attributeReturnRate(question: string): Promise<AttributionResult> {
-  const response = await fetch("/api/attribution/return-rate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, session_id: "attribution" }),
-  });
-  if (!response.ok) throw new Error(await parseError(response));
-  return (await response.json()) as AttributionResult;
 }
 
 export async function sendFeedback(logId: number, verdict: "correct" | "wrong"): Promise<void> {

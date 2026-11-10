@@ -4,7 +4,6 @@ import {
   CloseOutlined,
   DeleteOutlined,
   EditOutlined,
-  FundOutlined,
   MessageOutlined,
   MoonOutlined,
   MoreOutlined,
@@ -18,11 +17,10 @@ import type { ChatApi } from "../hooks/useChat";
 import type { Theme } from "../hooks/useTheme";
 import { groupConversations, searchConversations, type Conversation } from "../lib/conversations";
 
-export type View = "chat" | "attribution" | "review" | "settings";
+export type View = "chat" | "review" | "settings";
 
 const NAV: { key: View; label: string; icon: JSX.Element }[] = [
   { key: "chat", label: "智能问数", icon: <MessageOutlined /> },
-  { key: "attribution", label: "异动归因", icon: <FundOutlined /> },
   { key: "review", label: "案例审核", icon: <AuditOutlined /> },
   { key: "settings", label: "模型设置", icon: <SettingOutlined /> },
 ];

@@ -42,7 +42,13 @@ _N_DAYS = re.compile(r"(?:最近|近|过去)\s*(\d{1,3})\s*(?:天|日)")
 _WEEKS = re.compile(r"(?:最近|近|过去)\s*(\d{1,2})\s*(?:周|星期)")
 _MONTHS = re.compile(r"(?:最近|近|过去)\s*(\d{1,2})\s*个?月")
 
-_TIME_WORDS = (r"上上个月|上个月|上月|本月|这个月|去年|今年|本季度|这个季度|上周|上个星期"
+_ABSOLUTE_DATE = (r"(?<![0-9])(?:[0-9]{4}\s*年(?:\s*[0-9]{1,2}\s*月(?:\s*[0-9]{1,2}\s*[日号])?)?"
+                  r"|[0-9]{4}-[0-9]{1,2}(?:-[0-9]{1,2})?)(?![0-9-])")
+_DATE_SEPARATOR = r"(?:\s*(?:至|到|~|～|—|–)\s*|\s+-\s+)"
+_ABSOLUTE_SPAN = rf"{_ABSOLUTE_DATE}(?:{_DATE_SEPARATOR}{_ABSOLUTE_DATE})?"
+_ABSOLUTE = re.compile(_ABSOLUTE_SPAN)
+_TIME_WORDS = (rf"{_ABSOLUTE_SPAN}|上上个月|上个月|上月|本月|这个月|去年同期|去年|今年"
+               r"|本季度|这个季度|上周|上个星期"
                r"|今天|今日|昨天|昨日|(?:最近|近|过去)\s*\d{1,3}\s*(?:天|日|周|星期|个?月)")
 # "比上上个月高" / "相比上个月" / "和去年相比". 占比 is a ratio, not a comparison.
 _BASELINE = re.compile(
@@ -61,10 +67,12 @@ def parse_time_range(question: str, as_of: date) -> TimeRange:
     text = question.strip()
     match = _BASELINE.search(text)
     if match is None:
-        return _parse_period(text, as_of)
-    baseline = _parse_period(match.group(1) or match.group(2), as_of)
+        current = _parse_period(text, as_of)
+        if "同比" in text and "环比" not in text:
+            current.baseline = _absolute_month_comparison("去年同期", current)
+        return current
     current = _parse_period(f"{text[:match.start()]} {text[match.end():]}", as_of)
-    current.baseline = baseline
+    current.baseline = parse_comparison(match.group(1) or match.group(2), as_of, current)
     return current
 
 
@@ -77,6 +85,36 @@ def _months_spanned(value: TimeRange) -> int:
 
 def _span_label(start: date, end: date) -> str:
     return f"{start.isoformat()} 至 {(end - timedelta(days=1)).isoformat()}"
+
+
+def _absolute_bounds(text: str) -> tuple[date, date]:
+    year, *rest = map(int, re.findall(r"[0-9]+", text))
+    if not rest:
+        return date(year, 1, 1), date(year + 1, 1, 1)
+    if len(rest) == 1:
+        start = date(year, rest[0], 1)
+        return start, _add_months(start, 1)
+    start = date(year, rest[0], rest[1])
+    return start, start + timedelta(days=1)
+
+
+def _absolute_month_comparison(text: str, current: TimeRange) -> TimeRange | None:
+    months = {"上月": -1, "上个月": -1, "上上个月": -2, "去年同期": -12}
+    if (text not in months or not _ABSOLUTE.fullmatch(current.expression)
+            or _months_spanned(current) != 1):
+        return None
+    try:
+        start = _add_months(current.start, months[text])
+    except ValueError:
+        return None
+    end = _add_months(start, 1)
+    return TimeRange(start, end, _span_label(start, end), text)
+
+
+def parse_comparison(text: str, as_of: date, current: TimeRange) -> TimeRange | None:
+    """A month-relative baseline refers to the named month when there is one."""
+    baseline = _absolute_month_comparison(text.strip(), current) or _parse_period(text, as_of)
+    return None if baseline.is_default else baseline
 
 
 def previous_period(current: TimeRange) -> TimeRange:
@@ -110,6 +148,19 @@ def following_period(baseline: TimeRange, as_of: date) -> TimeRange | None:
 
 def _parse_period(text: str, as_of: date) -> TimeRange:
     end = as_of + timedelta(days=1)
+    absolute = _ABSOLUTE.search(text)
+    if absolute:
+        wording = absolute.group()
+        first, *last = re.split(_DATE_SEPARATOR, wording)
+        try:
+            start, stop = _absolute_bounds(first)
+            if last:
+                last_start, stop = _absolute_bounds(last[0])
+                if last_start < start:
+                    raise ValueError("日期区间的结束早于开始")
+            return TimeRange(start, stop, _span_label(start, stop), wording)
+        except (ValueError, OverflowError):
+            return TimeRange(as_of - timedelta(days=29), end, "最近30天", DEFAULT_EXPRESSION)
 
     if "上上个月" in text:
         start = _add_months(_month_start(as_of), -2)

@@ -20,6 +20,7 @@ from app.config import Settings
 from app.nl2sql.executor import ExecutionResult
 from app.nl2sql.time_parser import parse_time_range
 from app.semantic.models import RetrievalBundle
+from app.semantic.schema_context import SchemaContext
 
 AS_OF = date(2026, 10, 31)
 CALL_IDS = itertools.count(1)
@@ -35,7 +36,7 @@ SUMMARY_JSON = json.dumps({
 SUMMARY = "整体不错。\n- GMV 9665990.5[查询1]\n- 鞋靴销量 200[查询2]\n- 建议：加投放"
 
 
-def call(name: str, **arguments: str) -> ToolCallBlock:
+def call(name: str, **arguments: Any) -> ToolCallBlock:
     return ToolCallBlock(type="tool_call", id=f"plan-call-{next(CALL_IDS)}", name=name,
                          input=json.dumps(arguments, ensure_ascii=False))
 
@@ -147,13 +148,14 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(session, "save_query_executions",
                         lambda conn, log_id, records: saved.__setitem__("queries", records))
 
-    def run(scripts: dict[str, list[list[Any]]], delay: float | dict[str, float] = 0.0):
+    def run(scripts: dict[str, list[list[Any]]], delay: float | dict[str, float] = 0.0,
+            *, question: str = "最近 30 天生意怎么样"):
         model = RoleModel(scripts, delay)
         saved["model"] = model
         monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: model)
         settings = Settings(_env_file=None, as_of_date=AS_OF)
         answer = AskPipeline(settings, StubRetriever()).ask(  # type: ignore[arg-type]
-            "最近 30 天生意怎么样", "test",
+            question, "test",
             lambda event, data: saved["events"].append((event, data)), "analysis")
         return answer, saved
 
@@ -230,6 +232,7 @@ def test_digest_lists_each_finished_step_with_its_queries() -> None:
     ]
     context.purposes = ["整体", "", "渠道"]
     context.step_ids = [1, 2, 2]
+    context.result_warnings[2] = ["请核对分组合计。"]
     steps = [PlanStep(1, "整体对比", status="done", note="GMV 100"),
              PlanStep(2, "按类目拆", status="done"),
              PlanStep(3, "看广告", status="failed"),
@@ -237,7 +240,8 @@ def test_digest_lists_each_finished_step_with_its_queries() -> None:
     digest = results_digest(context, steps, 5)
     assert digest.split("\n\n") == [
         "第1步：整体对比（已完成）\n[查询1] 整体\n行号 | GMV\n0 | 100\n本步小结：GMV 100",
-        "第2步：按类目拆（已完成）\n[查询2] 查询数据\n行号 | 类目 | 销量\n0 | 类目0 | 0\n"
+        "第2步：按类目拆（已完成）\n[查询2] 查询数据\n结果提示：请核对分组合计。\n"
+        "行号 | 类目 | 销量\n0 | 类目0 | 0\n"
         "1 | 类目1 | 1\n2 | 类目2 | 2\n3 | 类目3 | 3\n4 | 类目4 | 4\n（共 8 行，只列出前 5 行）\n"
         "[查询3] 渠道\n行号 | 渠道\n（没有数据）",
         "第3步：看广告（失败）",
@@ -262,6 +266,43 @@ def test_the_planner_is_told_that_steps_run_at_once() -> None:
 
 # The planned analysis
 
+def test_attribution_checks_the_overall_metric_before_citable_breakdown(
+        analyze, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(AskPipeline, "_schema",
+                        lambda *args: SchemaContext("", ["orders"], True, 0))
+
+    def execute(settings: Settings, safe: Any) -> ExecutionResult:
+        if "mb_values" not in safe.sql:
+            return ExecutionResult(columns=["本期GMV"], rows=[[10]], sql=safe.sql)
+        return ExecutionResult(columns=["层级", "维度值", "增量", "维度总数"],
+                               rows=[["总体", None, 5, 1], ["分组", "A", 5, 1]], sql=safe.sql)
+
+    monkeypatch.setattr(tools, "execute_sql", execute)
+    plan_reply = text('{"overall_first": true, "steps": ["核对两期总体GMV", "按渠道拆解"]}')
+    part = {"from_sql": "safe.orders o", "expression": "SUM(o.total_amount)",
+            "time_column": "o.paid_at", "dimension": "o.channel_id"}
+    conclusion = json.dumps({
+        "judgement": "总体上升。",
+        "points": [{"claim": "本期为 10。", "evidence": [{"query": 1, "rows": [0]}]},
+                   {"claim": "A 增加 5。", "evidence": [{"query": 2, "rows": [1],
+                                                            "columns": ["维度值", "增量"]}]}],
+    }, ensure_ascii=False)
+    answer, saved = analyze(two_steps(
+        plan=[plan_reply],
+        step2=[[call("metric_breakdown", numerator=part, purpose="按渠道")], text("A 贡献最大")],
+        summary=[text(conclusion)],
+    ))
+
+    assert answer.status == "ok"
+    assert saved["model"].order[:5] == ["plan", "step1", "step1", "step2", "step2"]
+    assert [(row.index, row.step_id) for row in answer.results] == [(1, 1), (2, 2)]
+    assert saved["queries"][1].purpose == "指标变化拆解 · 按渠道"
+    assert "metric_breakdown" in [record.name for record in saved["traces"]]
+    assert answer.conclusion is not None and answer.conclusion.checked
+    evidence = answer.conclusion.points[1].evidence[0]
+    assert evidence.table is not None and evidence.table.rows == [["A", 5]]
+
+
 def test_a_plan_runs_each_step_then_summarizes(analyze) -> None:
     answer, saved = analyze(two_steps())
     assert answer.status == "ok"
@@ -276,6 +317,46 @@ def test_a_plan_runs_each_step_then_summarizes(analyze) -> None:
     assert by_step(answer) == {1: ["整体"], 2: ["类目拆分"]}
     assert saved["log_sql"] == ""
     assert saved["model"].calls == 7
+
+
+def test_a_disproved_premise_skips_breakdown_and_supplements(
+        analyze, monkeypatch: pytest.MonkeyPatch) -> None:
+    def execute(settings: Settings, safe: Any) -> ExecutionResult:
+        return ExecutionResult(columns=["本期GMV", "对比期GMV"], rows=[[110, 100]], sql=safe.sql)
+
+    monkeypatch.setattr(tools, "execute_sql", execute)
+    answer, saved = analyze(two_steps(
+        plan=[text('{"overall_first": true, "steps": ["核对两期总体GMV", "按渠道拆解"]}')],
+        step1=overall_step('{"premise_contradicted": true, "note": "GMV 从 100 增至 110。"}'),
+        summary=[text('{"judgement": "GMV 实际上升。", "points": [{"claim": "从 100 增至 110。",'
+                      ' "evidence": [{"query": 1, "rows": [0]}]}]}')],
+    ), question="为什么最近 30 天的 GMV 下降了？")
+
+    assert saved["model"].order == ["plan", "step1", "step1", "summary"]
+    assert [step.status for step in answer.plan] == ["done", "skipped"]
+    assert [event["status"] for event in events_of(saved, "step")] == ["running", "done", "skipped"]
+    assert answer.status == "ok" and answer.failure is None
+    assert answer.conclusion is not None and answer.conclusion.checked
+    assert [(item.step_id, item.index) for item in answer.results] == [(1, 1)]
+
+
+@pytest.mark.parametrize("rows", [[], [["GMV", None]]])
+def test_overall_step_cannot_skip_without_metric_data(
+        analyze, monkeypatch: pytest.MonkeyPatch, rows: list[list[Any]]) -> None:
+    execute = tools.execute_sql
+
+    def with_empty_overall(settings: Settings, safe: Any) -> ExecutionResult:
+        if "2026-09-01" in safe.sql:
+            return ExecutionResult(columns=["指标", "本期GMV"], rows=rows, sql=safe.sql)
+        return execute(settings, safe)
+
+    monkeypatch.setattr(tools, "execute_sql", with_empty_overall)
+    answer, saved = analyze(two_steps(
+        plan=[text('{"overall_first": true, "steps": ["核对两期总体GMV", "按渠道拆解"]}')],
+        step1=overall_step('{"premise_contradicted": true, "note": "GMV 上升。"}'),
+    ))
+    assert [step.status for step in answer.plan] == ["done", "done"]
+    assert "step2" in saved["model"].order
 
 
 def test_every_agent_of_a_plan_is_traced(analyze) -> None:
@@ -526,13 +607,14 @@ def _answer(**fields: Any) -> Any:
 def test_eval_counts_dimensions_from_plan_goals_and_query_purposes() -> None:
     runner = _runner()
     answer = _answer(plan=["对比本期和对比期的整体 GMV", "按品类拆分销量"])
-    assert runner.covered_dimensions(answer, ["整体", "类目", "渠道", "物流"]) == [
+    expected = {"整体": ["整体"], "类目": ["类目", "品类"], "渠道": ["渠道"], "物流": ["物流"]}
+    assert runner.covered_dimensions(answer, expected) == [
         "整体", "类目", "渠道"]
 
 
 def test_eval_scores_an_analysis() -> None:
     runner = _runner()
-    question = {"expected_dimensions": ["整体", "渠道"]}
+    question = {"expected_dimensions": {"整体": ["整体", "总体"], "渠道": ["渠道"]}}
     passed, detail = runner.score_analysis(_answer(plan=["整体对比"]), question)
     assert passed and "dimensions=2/2" in detail and "plan=1/1" in detail
     passed, detail = runner.score_analysis(_answer(), question)

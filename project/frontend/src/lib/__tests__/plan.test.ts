@@ -65,4 +65,12 @@ describe("plan progress", () => {
     expect(stepState("pending", false)).toBe("unfinished");
     expect(stepLabel("failed", false)).toBe("失败");
   });
+
+  it("keeps a skipped step distinct from a failure or an unfinished step", () => {
+    const thinking = setPlan(startThinking(0), [{ ...PLAN[0], status: "pending" }]);
+    const updated = updatePlanStep(thinking, { ...PLAN[0], status: "skipped" }, 10);
+    expect(updated.plan?.[0].status).toBe("skipped");
+    expect(stepLabel("skipped", true)).toBe("已跳过");
+    expect(stepLabel("skipped", false)).toBe("已跳过");
+  });
 });

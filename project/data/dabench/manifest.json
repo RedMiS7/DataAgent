@@ -1,4 +1,17 @@
 {
+  "id": "dabench",
+  "as_of_date": "2025-10-28",
+  "suggested_questions": [
+    {"tag": "库存", "text": "去年每个月的期末库存如何变化？"},
+    {"tag": "订单", "text": "分析去年各月订单数量和波动原因。", "mode": "analysis"},
+    {"tag": "线索", "text": "最近 30 天各渠道新增了多少条汽车销售线索？"},
+    {"tag": "信贷", "text": "去年各贷款类型的申请通过率是多少？"}
+  ],
+  "sensitive_terms": ["邮政编码", "邮编", "街道住址", "线索姓名", "客户姓名", "postal_code", "customer_name"],
+  "eval": {
+    "questions": "../../DB/DABench.csv",
+    "reviews": "../../eval/dabench_reviews.json"
+  },
   "description": "DABench 竞赛数据集：进销存、汽车销售线索、金融信贷。原始表在 raw_database，只读账号只能查 database 里的视图。",
   "data_dir": "../../DB/data",
   "raw_database": "dabench_raw",

@@ -23,6 +23,7 @@ const LABELS: Record<PlanStepStatus, string> = {
   running: "进行中",
   done: "完成",
   failed: "失败",
+  skipped: "已跳过",
 };
 
 /** How a step reads now; one left pending or running when the answer ended never finished. */

@@ -22,11 +22,11 @@ from agentscope.tool import ToolResponse
 
 DETAIL_LIMIT = 255
 
-CallKind = Literal["model", "tool", "retrieval", "embedding", "rerank", "sql"]
+CallKind = Literal["model", "tool", "retrieval", "embedding", "rerank", "sql", "retry", "degradation"]
 # Why a call failed: a timeout, a rate limit, a server error, or anything else.
 ErrorType = Literal["", "timeout", "429", "5xx", "other"]
 # How services put an HTTP status in their messages, e.g. "HTTP 429" or "Error code: 503".
-STATUS_IN_TEXT = re.compile(r"(?:HTTP|Error code:?|status(?:_code)?[:=]?)\s*(\d{3})\b",
+STATUS_IN_TEXT = re.compile(r"(?:HTTP|Error code:?|status(?:_code)?['\"]?\s*[:=]?)\s*(\d{3})\b",
                             re.IGNORECASE)
 
 
@@ -103,6 +103,17 @@ class CallTrace:
 
     def ordered(self) -> list[CallRecord]:
         return sorted(self.records, key=lambda record: record.started_ms)
+
+    def retry(self, service: str, kind: ErrorType, attempt: int) -> None:
+        self.add("backend", "retry", service, time.perf_counter(), ok=False,
+                 detail=f"第 {attempt} 次重试", error_type=kind)
+
+    def degrade(self, service: str, message: str) -> None:
+        self.add("backend", "degradation", service, time.perf_counter(), detail=message)
+
+    def degradation_warnings(self) -> list[str]:
+        return list(dict.fromkeys(record.detail for record in self.records
+                                  if record.kind == "degradation"))
 
     def _models(self) -> list[CallRecord]:
         return [record for record in self.records if record.kind == "model"]

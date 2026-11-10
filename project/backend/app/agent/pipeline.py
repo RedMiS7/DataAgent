@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
@@ -47,6 +46,7 @@ from ..semantic.models import RetrievalBundle, SchemaItem
 from ..semantic.retriever import SemanticRetriever
 from ..semantic.schema_context import SchemaContext
 from ..semantic.table_search import TableSearcher
+from ..service_calls import ServiceBudget, service_budget
 from . import session
 from .answer import (
     build_metric_notes,
@@ -94,9 +94,16 @@ from .intent import (
     resolve_time,
     settle,
 )
-from .planner import STEP_ANSWER_RULE, AnalysisTask, PlanStep, run_analysis
+from .planner import (
+    BREAKDOWN_RULE,
+    CONTRIBUTION_RULE,
+    STEP_ANSWER_RULE,
+    AnalysisTask,
+    PlanStep,
+    run_analysis,
+)
 from .router import catalog_note, question_note, route_question
-from .scope_model import build_chat_model
+from .scope_model import build_chat_model, run_model
 from .session import LogSource, QueryRecord
 from .sql_intent import build_checks
 from .tools import (
@@ -104,6 +111,7 @@ from .tools import (
     AgentRunContext,
     agentic_context,
     build_toolkit,
+    retrieved_tables,
     schema_context,
     table_names,
 )
@@ -113,7 +121,7 @@ logger = logging.getLogger(__name__)
 
 EventHandler = Callable[[str, dict[str, Any]], None]
 
-SENSITIVE_TERMS = (
+COMMON_SENSITIVE_TERMS = (
     "手机号", "手机号码", "电话号码", "联系方式", "身份证", "客户名单",
     "收货地址", "详细地址", "家庭住址", "邮箱", "真实姓名",
 )
@@ -127,10 +135,11 @@ QUERY_ANSWER_RULE = f"7. {QUERY_FORMAT}"
 
 ANALYSIS_ANSWER_RULE = f"""7. 这是分析请求，要给出判断，不要只报数字。
    查询方式：
-   - 先查本期和对比期的整体指标，再按和问题相关的维度逐层拆开，找出变化来源。
+   - {BREAKDOWN_RULE}
+   - {CONTRIBUTION_RULE}
    - 每次调用 run_sql 都用 purpose 写明这条查询要看什么，工具结果里的 query_index 是查询编号。
    - 比例、增长率、差值都写进 SQL 算出来，不要自己心算。百分比在 SQL 里乘以 100 并保留 1 位小数。
-   - 所有查询的列都用中文别名，例如 数量、金额、占比。
+   - 所有查询的列都用中文别名。
    - 最多 {ANALYSIS_MAX_QUERIES} 条查询，数据够下结论就停。
    {ANALYSIS_FORMAT.replace(chr(10), chr(10) + "   ")}"""
 
@@ -376,6 +385,15 @@ def _query_results(context: AgentRunContext, shown: list[int]) -> list[QueryResu
     return results
 
 
+def _answer_warnings(context: AgentRunContext, used: list[ExecutionResult]) -> list[str]:
+    warnings = list(context.sql_warnings)
+    used_ids = {id(execution) for execution in used}
+    for index, execution in enumerate(context.executions, 1):
+        if id(execution) in used_ids:
+            warnings.extend(context.result_warnings.get(index, []))
+    return list(dict.fromkeys(warnings))
+
+
 async def _reply_text(agent: Agent, inputs: list[Msg]) -> str:
     return extract_text(await agent.reply(inputs))
 
@@ -402,11 +420,19 @@ class AskPipeline:
     def ask(self, question: str, session_id: str = "default",
             emit: EventHandler | None = None, mode: RequestMode = "query",
             history: list[HistoryMessage] | None = None) -> AnswerPayload:
-        emit = emit or _noop
         trace = CallTrace()
+        seconds = self.settings.ask_timeout_seconds
+        if mode == "analysis":
+            seconds = self.settings.analysis_timeout_seconds
+        elif mode == "auto":
+            seconds = min(seconds, self.settings.analysis_timeout_seconds)
+        with service_budget(seconds, trace.retry) as budget:
+            return self._ask(question, session_id, emit or _noop, mode, history or [], trace, budget)
+
+    def _ask(self, question: str, session_id: str, emit: EventHandler, mode: RequestMode,
+             sent: list[HistoryMessage], trace: CallTrace, budget: ServiceBudget) -> AnswerPayload:
         question = question.strip()
         tag = session.log_tag(session_id)
-        sent = history or []
         # Router, planner and agent all read this one, so every question has a reply.
         client_history = fill_missing_replies(sent)
         turns = history_pairs(client_history)
@@ -465,6 +491,10 @@ class AskPipeline:
                 details=question_note(bundle, previous_intent(client_history),
                                       as_of.isoformat()),
                 fallback="query" if mode == "auto" else mode)
+            if router_model is model:
+                # The router owned and closed this client. Start the answer with a fresh one.
+                model = build_chat_model(self.settings)
+                assert model is not None
             route: RouteInfo | None = None
             chosen: RouteChoice = decision.route if mode == "auto" else mode
             if mode == "auto":
@@ -475,6 +505,8 @@ class AskPipeline:
                                 "message": f"判断为{label}：{decision.reason}".rstrip("："),
                                 "route": route.model_dump()})
             mode = "query" if chosen == "direct" else chosen
+            budget.seconds = (self.settings.analysis_timeout_seconds if mode == "analysis"
+                              else self.settings.ask_timeout_seconds)
 
             intent: IntentInfo | None = None
             # The checked intent, which the SQL is checked against.
@@ -511,16 +543,17 @@ class AskPipeline:
 
             context = AgentRunContext(settings=self.settings, retriever=self.retriever,
                                       emit=emit, bundle=bundle, mode=mode, log_tag=tag,
-                                      trace=trace, intent=intent,
+                                      trace=trace, intent=intent, time_range=time_range,
                                       sql_checks=build_checks(
                                           understood, time_range, catalog.metrics,
                                           catalog.schema_items, self.settings.mysql_business_db,
                                           mode))
+            context.visible_tables = (set(schema.tables) if schema is not None else
+                                      set(retrieved_tables(bundle, self.settings.mysql_business_db)))
             if schema is not None and schema.agentic:
                 # Built per question: the rerank key may be saved after start-up.
                 context.searcher = TableSearcher(self.settings, self.retriever,
                                                  build_reranker(self.settings), trace)
-                context.visible_tables = set(schema.tables)
                 context.require_visible = True
             if route is not None and route.chosen == "direct":
                 emit("status", {"step": "answering", "message": "不需要查数，直接回答"})
@@ -570,19 +603,17 @@ class AskPipeline:
                 ask_text, time_range, note))], role="user"))
 
             steps: list[PlanStep] | None = None
-            timeout = (self.settings.analysis_timeout_seconds if mode == "analysis"
-                       else self.settings.ask_timeout_seconds)
+            timeout = budget.seconds
             try:
                 if mode == "analysis":
                     # One loop for the whole analysis: the model's connections belong to it.
                     task = self._analysis_task(ask_text, client_history, bundle, time_range,
                                                query_iters, schema=schema, note=note)
-                    outcome = asyncio.run(asyncio.wait_for(
-                        run_analysis(model, context, task, lambda: _reply_text(agent, inputs)),
-                        timeout))
+                    outcome = run_model(model, lambda: run_analysis(
+                        model, context, task, lambda: _reply_text(agent, inputs)), timeout)
                     text, steps = outcome.text, outcome.steps
                 else:
-                    text = asyncio.run(asyncio.wait_for(_reply_text(agent, inputs), timeout))
+                    text = run_model(model, lambda: _reply_text(agent, inputs), timeout)
             except TimeoutError:
                 logger.warning("[%s] 问答超时（%.0f 秒），已有 %d 条查询结果", tag, timeout,
                                len(context.executions))
@@ -636,11 +667,14 @@ class AskPipeline:
                                   execution.sql, execution, time_range, bundle,
                                   context.attempts, status, summary, "", trace,
                                   summary_source, route=route, queries=context.query_records,
-                                  intent=intent, warnings=context.sql_warnings,
+                                  intent=intent, warnings=_answer_warnings(context, [execution]),
                                   conclusion=conclusion)
 
     def _refusal(self, question: str) -> str:
-        if any(term in question for term in SENSITIVE_TERMS):
+        dataset = self.settings.dataset
+        terms = dataset.sensitive_terms if dataset else []
+        lowered = question.casefold()
+        if any(term.casefold() in lowered for term in (*COMMON_SENSITIVE_TERMS, *terms)):
             return REFUSAL_MESSAGE
         return ""
 
@@ -736,8 +770,8 @@ class AskPipeline:
         )
         inputs = _history_messages(turns)
         inputs.append(Msg(name="user", content=[TextBlock(text=question)], role="user"))
-        return asyncio.run(asyncio.wait_for(_reply_text(agent, inputs),
-                                            self.settings.ask_timeout_seconds))
+        return run_model(model, lambda: _reply_text(agent, inputs),
+                         self.settings.ask_timeout_seconds)
 
     def _text_answer(self, conn, emit: EventHandler, session_id: str, question: str,
                      rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
@@ -811,9 +845,9 @@ class AskPipeline:
                       injection_config=InjectionConfig(inject_runtime_state=False))
         content = rewrite_input(question, text, errors, context.executions, context.purposes)
         try:
-            return asyncio.run(asyncio.wait_for(_reply_text(agent, [
+            return run_model(model, lambda: _reply_text(agent, [
                 Msg(name="user", content=[TextBlock(text=content)], role="user")]),
-                REWRITE_TIMEOUT_SECONDS))
+                REWRITE_TIMEOUT_SECONDS)
         except TimeoutError:
             logger.warning("[%s] 结论重写超时（%.0f 秒）", context.log_tag, REWRITE_TIMEOUT_SECONDS)
         except Exception:
@@ -841,7 +875,7 @@ class AskPipeline:
         results = _query_results(context, shown)
         plan = [PlanStepInfo(**step.view()) for step in steps or []]
 
-        warnings: list[str] = list(context.sql_warnings)
+        warnings = _answer_warnings(context, used)
         if context.reserved >= ANALYSIS_MAX_QUERIES:
             warnings.append(f"查询次数已用完（{ANALYSIS_MAX_QUERIES} 条），结论只基于已经查到的数据。")
         failed = [step.goal for step in steps or [] if step.status == "failed"]
@@ -883,15 +917,17 @@ class AskPipeline:
             primary = next((execution for execution in executions if execution.rows),
                            executions[0])
             results = _query_results(context, list(range(1, len(executions) + 1)))
+            used = executions
         else:
             primary = select_execution(executions) or executions[0]
             results = []
+            used = [primary]
         return self._finalize(conn, emit, session_id, question, rewritten, primary.sql, primary,
                               time_range, bundle, context.attempts, "partial",
                               template_summary(primary.columns, primary.rows), failure.message,
                               context.trace, mode=mode, results=results, route=route,
                               plan=plan, failure=failure, queries=context.query_records,
-                              intent=context.intent, warnings=context.sql_warnings)
+                              intent=context.intent, warnings=_answer_warnings(context, used))
 
     def _finalize(self, conn, emit: EventHandler, session_id: str, question: str,
                   rewritten: str, sql_text: str, result: ExecutionResult | None,
@@ -910,6 +946,8 @@ class AskPipeline:
         duration_ms = int((time.perf_counter() - trace.started) * 1000)
         results = results or []
         warnings = list(warnings or [])
+        degradation = trace.degradation_warnings()
+        warnings.extend(degradation)
         schema_name = self.settings.mysql_business_db
         used_tables = set(table_names(sql_text, schema_name)).union(
             *(table_names(item.sql, schema_name) for item in results))
@@ -961,7 +999,7 @@ class AskPipeline:
             retrieval=_retrieval_view(bundle),
             retries=retries,
             log_id=log_id,
-            degraded=bundle.degraded,
+            degraded=bundle.degraded or bool(degradation),
             warnings=warnings,
             mode=mode,
             results=results,

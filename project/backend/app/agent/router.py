@@ -3,7 +3,6 @@ its intent as a structure. One model call does both."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -17,6 +16,7 @@ from ..api.schemas import AskMode, HistoryMessage, RouteChoice
 from ..semantic.models import Metric, RetrievalBundle, SchemaItem
 from .answer import history_content, latest_replies, purposes_note, strip_citations
 from .intent import Intent, IntentParseError, parse_intent
+from .scope_model import run_model
 from .trace import CallTrace
 
 logger = logging.getLogger(__name__)
@@ -220,8 +220,8 @@ def route_question(model: ChatModelBase, question: str, history: list[HistoryMes
         content = f"{content}\n\n{details}"
     label = MODE_LABELS.get(fallback, fallback)
     try:
-        intent = asyncio.run(asyncio.wait_for(
-            _read_intent(model, content, trace, knowledge, log_tag), timeout))
+        intent = run_model(
+            model, lambda: _read_intent(model, content, trace, knowledge, log_tag), timeout)
     except TimeoutError:
         logger.warning("[%s] 意图识别超时（%.0f 秒），改用%s", log_tag, timeout, label)
         return RouteDecision(fallback, "判断超时，按查询处理", "fallback")

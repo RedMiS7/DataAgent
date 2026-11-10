@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..agent.pipeline import AskPipeline
 from ..agent.scope_model import build_chat_model
 from ..config import Settings, get_settings
+from ..datasets import DatasetManifest
 from ..embedding import build_embedder
 from ..rerank import build_reranker
 from ..semantic.retriever import SemanticRetriever
@@ -73,10 +74,10 @@ def export_payload(run: dict[str, Any], report: EvalReport, settings: Settings) 
     }
 
 
-def _run_retrieval(settings: Settings, args: argparse.Namespace, dataset: str) -> int:
+def _run_retrieval(settings: Settings, args: argparse.Namespace, dataset: DatasetManifest) -> int:
     """Retrieval recall: no model, no stored run. Printed, and written with --output."""
     retriever, _, embedder = _pipeline(settings)
-    questions = runner.select_cases(runner.load_questions(), dataset)
+    questions = runner.load_dataset_questions(dataset)
     if args.category:
         questions = [item for item in questions if item["category"] in args.category]
     result = evaluate_retrieval(settings, retriever,
@@ -85,7 +86,7 @@ def _run_retrieval(settings: Settings, args: argparse.Namespace, dataset: str) -
     print_retrieval(result)
     if args.output:
         _write(args.output, {
-            "mode": "retrieval", "dataset": dataset, "categories": args.category or [],
+            "mode": "retrieval", "dataset": dataset.id, "categories": args.category or [],
             "as_of_date": settings.as_of_date.isoformat(),
             "embedding_model": getattr(embedder, "model_name", ""), **result,
         })
@@ -96,20 +97,24 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.repeat < 1 or args.concurrency < 1:
         print("--repeat 和 --concurrency 至少是 1", file=sys.stderr)
         return 1
-    settings = get_settings()
     try:
-        dataset = runner.dataset_for(settings)
+        settings = get_settings()
+        dataset = runner.evaluation_dataset(settings)
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
-    print(f"业务库 {settings.mysql_business_db}，只跑数据集 {dataset} 的评测题")
+    print(f"业务库 {settings.mysql_business_db}，只跑数据集 {dataset.id} 的评测题")
     # Reference answers, the logs and the results go through the evaluation account.
     problem = runner.eval_account_problem(settings)
     if problem:
         print(problem, file=sys.stderr)
         return 1
     if args.mode == "retrieval":
-        return _run_retrieval(settings, args, dataset)
+        try:
+            return _run_retrieval(settings, args, dataset)
+        except (OSError, ValueError) as exc:
+            print(f"无法加载评测题：{exc}", file=sys.stderr)
+            return 1
 
     store = EvalStore(settings)
     try:
@@ -122,8 +127,12 @@ def cmd_run(args: argparse.Namespace) -> int:
                 if run["status"] == "done":
                     print(f"评测 {args.resume} 已经完成，不需要续跑", file=sys.stderr)
                     return 1
-                if run["dataset"] != dataset:
-                    print(f"评测 {args.resume} 跑的是 {run['dataset']}，当前实例是 {dataset}",
+                if run["dataset"] != dataset.id:
+                    print(f"评测 {args.resume} 跑的是 {run['dataset']}，当前实例是 {dataset.id}",
+                          file=sys.stderr)
+                    return 1
+                if run["mode"] not in MODES:
+                    print(f"评测 {args.resume} 的模式 {run['mode']} 已移除，历史结果仍可查看",
                           file=sys.stderr)
                     return 1
                 options = RunOptions.from_run(run, args.concurrency)
@@ -139,12 +148,15 @@ def cmd_run(args: argparse.Namespace) -> int:
                 return 1
             pipeline = _pipeline(settings)[1] if model is not None else None
             jobs = build_jobs(settings, options, dataset, pipeline)
+            if not jobs:
+                print(f"数据集 {dataset.id} 没有符合当前模式和筛选条件的评测题", file=sys.stderr)
+                return 1
             if args.resume:
                 run_id = args.resume
                 store.reopen_run(run_id, options.concurrency)
             else:
                 run_id = store.create_run(
-                    dataset=dataset, mode=options.mode, categories=options.categories,
+                    dataset=dataset.id, mode=options.mode, categories=options.categories,
                     options=options.saved(), repeat=options.repeat,
                     concurrency=options.concurrency, llm_model=model.model if model else "",
                     schema_mode=settings.schema_mode, git_commit=git_commit())
@@ -164,6 +176,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                 return 130
     except EvalBusy as exc:
         print(exc, file=sys.stderr)
+        return 1
+    except (OSError, ValueError) as exc:
+        print(f"无法加载评测题：{exc}", file=sys.stderr)
         return 1
     except SQLAlchemyError as exc:
         print(f"评测库读写失败（评测账号 {settings.mysql_eval_user}）："

@@ -171,7 +171,9 @@ def test_an_analysis_or_direct_answer_needs_no_metric() -> None:
     ("最近7天", []),
     ("", []),
     ("最近", []),
-    ("2026年9月", ["time_unparsed"]),
+    ("2026年9月", []),
+    ("2024-02-01 至 2024-02-29", []),
+    ("2026年13月", ["time_unparsed"]),
 ])
 def test_the_time_must_be_one_the_parser_reads(wording: str, issues: list[str]) -> None:
     checked = check(metrics=["销售额"], time_range={"text": wording})
@@ -281,12 +283,12 @@ def test_the_pending_question_is_the_one_first_asked() -> None:
 
 
 def test_settling_takes_the_defaults_and_says_so() -> None:
-    checked = check(metrics=[{"term": "退货"}], time_range={"text": "2026年9月"})
+    checked = check(metrics=[{"term": "退货"}], time_range={"text": "2026年13月"})
     settled = settle(checked)
     assert settled.issues == []
     assert settled.intent.metrics[0].name == "退货率"
     assert settled.intent.time_range.text == ""
-    assert settled.assumptions == ["“退货”按“退货率”统计", "没看懂时间“2026年9月”，按最近 30 天统计"]
+    assert settled.assumptions == ["“退货”按“退货率”统计", "没看懂时间“2026年13月”，按最近 30 天统计"]
 
 
 def test_the_previous_intent_comes_from_the_latest_reply() -> None:
@@ -325,6 +327,21 @@ def test_a_comparison_becomes_the_baseline() -> None:
     time_range, _ = resolve_time(intent(time_range={"text": "上个月"}, comparison="去年"),
                                  parsed, AS_OF)
     assert time_range.baseline is not None and time_range.baseline.label == "去年"
+
+
+@pytest.mark.parametrize("wording, comparison", [
+    ("2024年11月", "上月"),
+    ("2024年11月", "2024年10月"),
+    ("2024年11月相比2024年10月", ""),
+])
+def test_absolute_intent_dates_resolve_without_clarification(wording: str, comparison: str) -> None:
+    checked = check(metrics=["销售额"], time_range={"text": wording}, comparison=comparison)
+    assert checked.issues == []
+    period, notes = resolve_time(checked.intent, parse_time_range("", AS_OF), AS_OF)
+    assert (period.start, period.end) == (date(2024, 11, 1), date(2024, 12, 1))
+    assert period.baseline is not None
+    assert (period.baseline.start, period.baseline.end) == (date(2024, 10, 1), date(2024, 11, 1))
+    assert notes == []
 
 
 def test_the_understanding_reads_as_one_line() -> None:

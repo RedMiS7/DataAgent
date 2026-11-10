@@ -128,7 +128,7 @@ export interface QueryResult {
   step_id?: number | null;
 }
 
-export type PlanStepStatus = "pending" | "running" | "done" | "failed";
+export type PlanStepStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
 export interface PlanStep {
   id: number;
@@ -229,8 +229,15 @@ export interface SetupStatus {
   error: string;
 }
 
+export interface SuggestedQuestion {
+  tag: string;
+  text: string;
+  mode: "query" | "analysis";
+}
+
 export interface MetaInfo {
   as_of_date: string;
+  suggested_questions?: SuggestedQuestion[];
   sql_max_rows: number;
   sql_timeout_ms: number;
   llm_configured: boolean;
@@ -246,30 +253,6 @@ export interface CaseOut {
   result_summary: string;
   status: string;
   created_at: string;
-}
-
-export interface AttributionFactor {
-  dimension: string;
-  name: string;
-  current_refund: number;
-  previous_refund: number;
-  delta: number;
-  share: number;
-}
-
-export interface AttributionResult {
-  metric: string;
-  current: Record<string, string>;
-  previous: Record<string, string>;
-  current_rate: number;
-  previous_rate: number;
-  delta_points: number;
-  total_current_refund: number;
-  total_previous_refund: number;
-  summary: string;
-  summary_source: string;
-  factors: AttributionFactor[];
-  sql: string[];
 }
 
 export type StreamEvent = "status" | "reasoning" | "plan" | "step" | "answer" | "error";

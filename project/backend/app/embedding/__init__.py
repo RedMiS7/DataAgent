@@ -14,23 +14,18 @@ def build_embedder(settings: Settings) -> EmbeddingProvider | None:
     if provider == "fake":
         return HashEmbedder(dim=settings.embedding_dim)
 
-    _, model_name, dim, _ = resolve_embedding(
+    endpoint, model_name, dim, _ = resolve_embedding(
         provider,
         settings.embedding_endpoint,
         settings.embedding_model,
         settings.embedding_dim,
         settings.embedding_batch_size,
     )
-    if not model_name:
+    if not endpoint or not model_name or not settings.embedding_api_key.strip():
         return None
 
-    model = build_embedding_model(settings)
-    if model is None:
-        return None
-    embedder = ScopeEmbedder(model)
-    if dim and embedder.dim and dim != embedder.dim:
-        embedder.dim = dim
-    return embedder
+    configured = settings.model_copy()
+    return ScopeEmbedder(lambda: build_embedding_model(configured), model_name, dim)
 
 
 __all__ = ["EmbeddingError", "EmbeddingProvider", "build_embedder"]

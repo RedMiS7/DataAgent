@@ -29,11 +29,13 @@ from app.agent.pipeline import (
 from app.agent.scope_model import ScriptedChatModel
 from app.api.schemas import HISTORY_MAX_MESSAGES, AskRequest, HistoryMessage
 from app.config import Settings
-from app.main import ClosedClientFilter, configure_logging
+from app.main import configure_logging
 from app.nl2sql.executor import ExecutionResult, SQLExecutionError
 from app.nl2sql.time_parser import parse_time_range
+from app.rerank import RerankError
 from app.semantic import repository
 from app.semantic.models import RetrievalBundle, SchemaItem
+from app.semantic.schema_context import SchemaContext
 from pydantic import ValidationError
 
 AS_OF = date(2026, 10, 31)
@@ -718,6 +720,35 @@ def test_sensitive_questions_are_refused_before_routing(ask, monkeypatch: pytest
     assert answer.route is None
 
 
+def test_rerank_fallback_in_a_tool_reaches_the_final_answer(
+        ask, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Reranker:
+        model_name = "fixture"
+
+        def rerank(self, *args: Any) -> Any:
+            raise RerankError("重排模型返回 HTTP 429")
+
+    def search(context: tools.AgentRunContext, question: str) -> str:
+        assert context.searcher is not None
+        chosen, reranked, _ = context.searcher._choose(
+            question, {"products": 1.0}, ["products"], [], [], "safe.", True)
+        assert chosen == [("products", 1.0)] and not reranked
+        return "safe.products"
+
+    monkeypatch.setattr(AskPipeline, "_schema",
+                        lambda *args: SchemaContext("", ["products"], True, 0, agentic=True))
+    monkeypatch.setattr(pipeline, "build_reranker", lambda settings: Reranker())
+    monkeypatch.setattr(tools, "search_tables", search)
+    answer = ask("上个月哪个商品卖得最多？", [
+        [call("search_semantic", question="检索商品和销量")],
+        [call("run_sql", sql=SEPTEMBER_SQL)],
+        [TextBlock(text="童装商品卖得最多。")],
+    ], history=[])
+    assert answer.status == "ok" and answer.degraded
+    assert answer.warnings == ["重排服务不可用，已沿用检索排序。"]
+    assert ask.saved["log"]["warnings"] == answer.warnings
+
+
 # Looking up columns
 
 REAL_COLUMNS = {
@@ -898,16 +929,6 @@ def test_agent_failure_logs_the_traceback(analyze, monkeypatch: pytest.MonkeyPat
     assert any("问答失败 status=error" in item.getMessage() for item in caplog.records)
 
 
-def noise(message: str) -> logging.LogRecord:
-    return logging.LogRecord("asyncio", logging.ERROR, __file__, 1, message, None, None)
-
-
-def test_only_the_client_cleanup_error_is_filtered() -> None:
-    keep = ClosedClientFilter()
-    assert not keep.filter(noise("never retrieved\nfuture: <Task coro=<AsyncClient.aclose()>>"))
-    assert keep.filter(noise("never retrieved\nfuture: <Task coro=<other()>>"))
-
-
 def test_log_level_applies_to_the_app_only() -> None:
     app_logger = logging.getLogger("app")
     before = app_logger.level
@@ -919,28 +940,34 @@ def test_log_level_applies_to_the_app_only() -> None:
         app_logger.setLevel(before)
 
 
-# Return-rate attribution
-
-def test_attribution_compares_with_the_baseline_or_the_previous_month(
-        monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.analysis import attribution
-
-    def fake_run(settings: Settings, sql: str) -> list[list[Any]]:
-        return [[100, 80, 1000, 1000]] if "AS prev_gmv" in sql else []
-
-    monkeypatch.setattr(attribution, "_run", fake_run)
-    monkeypatch.setattr(attribution, "build_chat_model", lambda settings: None)
-    settings = Settings(_env_file=None, as_of_date=AS_OF)
-    named = attribution.attribute_return_rate(settings, "上个月退货率为什么比去年高？")
-    plain = attribution.attribute_return_rate(settings, "上个月退货率为什么上升？")
-    assert named.current["start"] == plain.current["start"] == "2026-09-01"
-    assert (named.previous["start"], named.previous["end_exclusive"]) == ("2025-01-01", "2026-01-01")
-    assert "completed_at >= '2025-01-01'" in named.sql[0]
-    assert plain.previous == {"start": "2026-08-01", "end_exclusive": "2026-09-01",
-                              "label": "2026-08-01 至 2026-08-31"}
-
-
 # Only the cited queries are shown
+
+@pytest.mark.parametrize("mode", ["query", "analysis"])
+@pytest.mark.parametrize("corrected", [False, True])
+def test_only_adopted_queries_report_result_warnings(
+        ask, monkeypatch: pytest.MonkeyPatch, mode: str, corrected: bool) -> None:
+    def execute(settings: Settings, safe: Any) -> ExecutionResult:
+        value = -3 if "quantity < 0" in safe.sql else 12
+        return ExecutionResult(columns=["件数"], rows=[[value]], sql=safe.sql)
+
+    monkeypatch.setattr(tools, "execute_sql", execute)
+    script = [NO_PLAN] if mode == "analysis" else []
+    script.append([call("run_sql", sql="SELECT SUM(quantity) AS 件数 FROM safe.order_items "
+                        "WHERE quantity < 0")])
+    if corrected:
+        script.append([call("run_sql", sql="SELECT SUM(quantity) AS 件数 FROM safe.order_items "
+                            "WHERE quantity >= 0")])
+    conclusion = {"judgement": "件数统计。", "points": [
+        {"claim": "已返回件数。", "evidence": [{"query": 2 if corrected else 1, "rows": [0]}]},
+    ]}
+    script.append([TextBlock(text=json.dumps(conclusion, ensure_ascii=False))])
+
+    answer = ask("有多少件？", script, mode=mode, history=[])
+    assert answer.status == "ok"
+    assert answer.table is not None and answer.table.rows == [[12 if corrected else -3]]
+    assert any("出现负值" in warning for warning in answer.warnings) is not corrected
+    assert ask.saved["log"]["warnings"] == answer.warnings
+
 
 def _two_products(ask, conclusion: str):
     return ask("最近哪些商品值得推？", [

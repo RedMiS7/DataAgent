@@ -104,7 +104,8 @@ class RoleModel(ScriptedChatModel):
 
 
 class StubRetriever:
-    def retrieve_with_connection(self, question: str, conn: object) -> RetrievalBundle:
+    def retrieve_with_connection(self, question: str, conn: object,
+                                 trace: Any = None) -> RetrievalBundle:
         return RetrievalBundle()
 
 

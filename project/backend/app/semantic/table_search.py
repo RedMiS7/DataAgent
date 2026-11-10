@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.engine import Connection
 
+from ..agent.trace import CallTrace, timed
 from ..config import Settings
 from ..db.engine import business_connection
 from ..rerank import Reranker, RerankError
@@ -128,10 +129,12 @@ class _Lists:
 
 class TableSearcher:
     def __init__(self, settings: Settings, retriever: SemanticRetriever,
-                 reranker: Reranker | None) -> None:
+                 reranker: Reranker | None, trace: CallTrace | None = None) -> None:
         self.settings = settings
         self.retriever = retriever
         self.reranker = reranker
+        # The question's trace: embedding and rerank calls are recorded on it.
+        self.trace = trace
 
     def search(self, query: str, conn: Connection, *, use_vector: bool = True,
                use_keyword: bool = True, rerank: bool = True,
@@ -214,7 +217,8 @@ class TableSearcher:
         store, embedder = self.retriever.store, self.retriever.embedder
         if store is None or embedder is None or embedder.model_name.startswith("fake"):
             raise RuntimeError("没有配置向量库或向量模型")
-        vector = embedder.embed([query])[0]
+        with timed(self.trace, "embedding", embedder.model_name, input_text=query):
+            vector = embedder.embed([query])[0]
         threshold = self.settings.retrieval_min_score
 
         def payloads(collection: str) -> list[dict]:
@@ -275,7 +279,9 @@ class TableSearcher:
         documents = [table_document(table, summaries.get(table, ""), items, prefix)
                      for table in candidates]
         try:
-            results = self.reranker.rerank(query, documents, top_n)
+            with timed(self.trace, "rerank", self.reranker.model_name,
+                       input_text="\n".join([query, *documents])):
+                results = self.reranker.rerank(query, documents, top_n)
         except RerankError as exc:
             logger.warning("重排失败，按检索排序 error=%s", exc)
             return by_retrieval, False, f"重排不可用：{exc}"

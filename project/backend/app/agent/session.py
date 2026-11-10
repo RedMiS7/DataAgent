@@ -7,7 +7,7 @@ from typing import Any, Literal
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from .trace import CallRecord
+from .trace import CallRecord, text_hash
 
 # Same statement as data/initdb/02_app_schema.sql; run at startup for databases made before it.
 CALL_TRACES_DDL = """CREATE TABLE IF NOT EXISTS call_traces (
@@ -23,6 +23,8 @@ CALL_TRACES_DDL = """CREATE TABLE IF NOT EXISTS call_traces (
     output_tokens INT NOT NULL DEFAULT 0,
     ok            TINYINT(1) NOT NULL DEFAULT 1,
     detail        VARCHAR(255) NOT NULL DEFAULT '',
+    error_type    VARCHAR(16) NOT NULL DEFAULT '',
+    input_hash    CHAR(16) NOT NULL DEFAULT '',
     created_at    DATETIME NOT NULL,
     KEY idx_call_traces_log (log_id)
 ) ENGINE=InnoDB;"""
@@ -34,6 +36,7 @@ QUERY_EXECUTIONS_DDL = """CREATE TABLE IF NOT EXISTS query_executions (
     query_no      INT NULL,
     purpose       VARCHAR(255) NOT NULL DEFAULT '',
     sql_text      TEXT NOT NULL,
+    sql_hash      CHAR(16) NOT NULL DEFAULT '',
     status        VARCHAR(16) NOT NULL,
     row_count     INT NOT NULL DEFAULT 0,
     error         VARCHAR(512) NOT NULL DEFAULT '',
@@ -49,6 +52,12 @@ QUERY_LOG_COLUMNS = {
     "summary_source": "VARCHAR(16) NOT NULL DEFAULT ''",
     "warnings": "JSON NULL",
     "source": "VARCHAR(16) NOT NULL DEFAULT 'web'",
+}
+# Columns the call and query archives gained later: (column, definition, after which).
+LATER_COLUMNS = {
+    "call_traces": [("error_type", "VARCHAR(16) NOT NULL DEFAULT ''", "detail"),
+                    ("input_hash", "CHAR(16) NOT NULL DEFAULT ''", "error_type")],
+    "query_executions": [("sql_hash", "CHAR(16) NOT NULL DEFAULT ''", "sql_text")],
 }
 
 PREVIEW_ROWS = 20
@@ -106,19 +115,29 @@ def save_query_log(conn: Connection, session_id: str, question: str, rewritten: 
     return int(result.lastrowid)
 
 
+def _columns(conn: Connection, table: str) -> set[str]:
+    return {row[0] for row in conn.execute(text(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+        "AND TABLE_NAME = :table"), {"table": table})}
+
+
 def ensure_log_tables(conn: Connection) -> None:
     """Add the log tables and columns that databases made before them lack."""
     conn.execute(text(CALL_TRACES_DDL))
     conn.execute(text(QUERY_EXECUTIONS_DDL))
-    existing = {row[0] for row in conn.execute(text(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
-        "AND TABLE_NAME = 'query_logs'"))}
+    existing = _columns(conn, "query_logs")
     previous = "error_message"
     for name, definition in QUERY_LOG_COLUMNS.items():
         if name not in existing:
             conn.execute(text(f"ALTER TABLE query_logs ADD COLUMN {name} {definition} "
                               f"AFTER {previous}"))
         previous = name
+    for table, columns in LATER_COLUMNS.items():
+        existing = _columns(conn, table)
+        for name, definition, after in columns:
+            if name not in existing:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition} "
+                                  f"AFTER {after}"))
 
 
 def save_query_executions(conn: Connection, log_id: int, records: list[QueryRecord]) -> None:
@@ -126,13 +145,14 @@ def save_query_executions(conn: Connection, log_id: int, records: list[QueryReco
         return
     conn.execute(
         text(
-            "INSERT INTO query_executions (log_id, seq, query_no, purpose, sql_text, status, "
-            "row_count, error, duration_ms, rows_preview, created_at) VALUES (:log_id, :seq, "
-            ":query_no, :purpose, :sql_text, :status, :row_count, :error, :duration_ms, "
-            ":rows_preview, NOW())"
+            "INSERT INTO query_executions (log_id, seq, query_no, purpose, sql_text, sql_hash, "
+            "status, row_count, error, duration_ms, rows_preview, created_at) VALUES (:log_id, "
+            ":seq, :query_no, :purpose, :sql_text, :sql_hash, :status, :row_count, :error, "
+            ":duration_ms, :rows_preview, NOW())"
         ),
         [{"log_id": log_id, "seq": seq, "query_no": record.query_no,
-          "purpose": record.purpose[:255], "sql_text": record.sql, "status": record.status,
+          "purpose": record.purpose[:255], "sql_text": record.sql,
+          "sql_hash": text_hash(record.sql), "status": record.status,
           "row_count": record.row_count, "error": record.error[:500],
           "duration_ms": record.duration_ms, "rows_preview": _preview(record)}
          for seq, record in enumerate(records, start=1)],
@@ -161,8 +181,9 @@ def load_query_log(conn: Connection, log_id: int) -> dict | None:
 
 def load_query_executions(conn: Connection, log_id: int) -> list[dict]:
     rows = conn.execute(
-        text("SELECT seq, query_no, purpose, sql_text, status, row_count, error, duration_ms, "
-             "rows_preview FROM query_executions WHERE log_id = :log_id ORDER BY seq"),
+        text("SELECT seq, query_no, purpose, sql_text, sql_hash, status, row_count, error, "
+             "duration_ms, rows_preview FROM query_executions WHERE log_id = :log_id "
+             "ORDER BY seq"),
         {"log_id": log_id},
     )
     records = []
@@ -184,14 +205,15 @@ def save_call_traces(conn: Connection, log_id: int, records: list[CallRecord]) -
     conn.execute(
         text(
             "INSERT INTO call_traces (log_id, seq, agent, kind, name, started_ms, duration_ms, "
-            "input_tokens, output_tokens, ok, detail, created_at) VALUES (:log_id, :seq, :agent, "
-            ":kind, :name, :started_ms, :duration_ms, :input_tokens, :output_tokens, :ok, "
-            ":detail, NOW())"
+            "input_tokens, output_tokens, ok, detail, error_type, input_hash, created_at) VALUES "
+            "(:log_id, :seq, :agent, :kind, :name, :started_ms, :duration_ms, :input_tokens, "
+            ":output_tokens, :ok, :detail, :error_type, :input_hash, NOW())"
         ),
         [{"log_id": log_id, "seq": seq, "agent": record.agent, "kind": record.kind,
           "name": record.name[:64], "started_ms": record.started_ms,
           "duration_ms": record.duration_ms, "input_tokens": record.input_tokens,
-          "output_tokens": record.output_tokens, "ok": record.ok, "detail": record.detail}
+          "output_tokens": record.output_tokens, "ok": record.ok, "detail": record.detail,
+          "error_type": record.error_type, "input_hash": record.input_hash}
          for seq, record in enumerate(records, start=1)],
     )
 
@@ -199,7 +221,8 @@ def save_call_traces(conn: Connection, log_id: int, records: list[CallRecord]) -
 def load_call_traces(conn: Connection, log_id: int) -> list[dict]:
     rows = conn.execute(
         text("SELECT seq, agent, kind, name, started_ms, duration_ms, input_tokens, "
-             "output_tokens, ok, detail FROM call_traces WHERE log_id = :log_id ORDER BY seq"),
+             "output_tokens, ok, detail, error_type, input_hash FROM call_traces "
+             "WHERE log_id = :log_id ORDER BY seq"),
         {"log_id": log_id},
     )
     return [dict(row._mapping) for row in rows]

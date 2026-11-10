@@ -177,7 +177,8 @@ def test_time_range_warning(sql: str, warns: bool) -> None:
 
 
 class StubRetriever:
-    def retrieve_with_connection(self, question: str, conn: object) -> RetrievalBundle:
+    def retrieve_with_connection(self, question: str, conn: object,
+                                 trace: Any = None) -> RetrievalBundle:
         self.question = question
         return RetrievalBundle()
 
@@ -566,7 +567,8 @@ def test_a_followup_reads_the_metric_from_the_client_history(ask) -> None:
     retriever_question: list[str] = []
 
     class Recording(StubRetriever):
-        def retrieve_with_connection(self, question: str, conn: object) -> RetrievalBundle:
+        def retrieve_with_connection(self, question: str, conn: object,
+                                 trace: Any = None) -> RetrievalBundle:
             retriever_question.append(question)
             return RetrievalBundle()
 

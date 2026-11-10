@@ -205,10 +205,11 @@ def format_trace(rows: list[dict]) -> list[str]:
     for row in rows:
         tokens = (f" tokens={row['input_tokens']}/{row['output_tokens']}"
                   if row["kind"] == "model" else "")
-        state = "" if row["ok"] else " 失败"
+        kind = row.get("error_type") or ""
+        state = "" if row["ok"] else (f" 失败({kind})" if kind else " 失败")
         detail = f" {row['detail']}" if row["detail"] else ""
         lines.append(f"{row['seq']:>3}  +{row['started_ms'] / 1000:6.1f}s  "
-                     f"{row['duration_ms'] / 1000:5.1f}s  {row['agent']:<12} {row['kind']:<5} "
+                     f"{row['duration_ms'] / 1000:5.1f}s  {row['agent']:<12} {row['kind']:<9} "
                      f"{row['name']}{tokens}{state}{detail}")
     return lines
 
@@ -279,8 +280,15 @@ def cmd_show_trace(log_id: int | None) -> int:
     for line in format_trace(rows):
         print(line)
     models = [row for row in rows if row["kind"] == "model"]
+    tools = [row for row in rows if row["kind"] == "tool"]
     print(f"模型 {len(models)} 次，tokens {sum(row['input_tokens'] for row in models)}"
-          f"/{sum(row['output_tokens'] for row in models)}，工具 {len(rows) - len(models)} 次")
+          f"/{sum(row['output_tokens'] for row in models)}，工具 {len(tools)} 次")
+    backend = {kind: [row for row in rows if row["kind"] == kind]
+               for kind in ("retrieval", "embedding", "rerank", "sql")}
+    if any(backend.values()):
+        print("后端调用：" + "，".join(
+            f"{kind} {len(items)} 次 {sum(row['duration_ms'] for row in items) / 1000:.1f}s"
+            for kind, items in backend.items() if items))
     return 0
 
 

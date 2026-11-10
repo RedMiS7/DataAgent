@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS query_executions (
     query_no      INT NULL,
     purpose       VARCHAR(255) NOT NULL DEFAULT '',
     sql_text      TEXT NOT NULL,
+    sql_hash      CHAR(16) NOT NULL DEFAULT '',
     status        VARCHAR(16) NOT NULL,
     row_count     INT NOT NULL DEFAULT 0,
     error         VARCHAR(512) NOT NULL DEFAULT '',
@@ -128,7 +129,9 @@ CREATE TABLE IF NOT EXISTS qa_cases (
     KEY idx_qa_cases_status (status)
 ) ENGINE=InnoDB;
 
--- One row per model or tool call of a question in query_logs.
+-- One row per call of a question in query_logs: model, tool, semantic retrieval,
+-- embedding, rerank or SQL. error_type is timeout, 429, 5xx or other for a failed call;
+-- input_hash is a hash of an embedding, rerank or SQL input, to count repeated calls.
 CREATE TABLE IF NOT EXISTS call_traces (
     id            BIGINT PRIMARY KEY AUTO_INCREMENT,
     log_id        BIGINT NOT NULL,
@@ -142,6 +145,8 @@ CREATE TABLE IF NOT EXISTS call_traces (
     output_tokens INT NOT NULL DEFAULT 0,
     ok            TINYINT(1) NOT NULL DEFAULT 1,
     detail        VARCHAR(255) NOT NULL DEFAULT '',
+    error_type    VARCHAR(16) NOT NULL DEFAULT '',
+    input_hash    CHAR(16) NOT NULL DEFAULT '',
     created_at    DATETIME NOT NULL,
     KEY idx_call_traces_log (log_id)
 ) ENGINE=InnoDB;

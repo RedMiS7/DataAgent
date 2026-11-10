@@ -97,12 +97,31 @@ class CaseResult:
     failure_hint: str = ""
     # The reference SQL when it was built during the run, e.g. from the earlier turn.
     reference_sql: str = ""
+    # Milliseconds spent in each kind of call (model, sql, embedding, rerank, retrieval),
+    # summed over calls; steps running at once can make them exceed duration_ms.
+    backend_ms: dict[str, int] = field(default_factory=dict)
+    # Failed calls by "service:error type", e.g. "model:429" or "rerank:timeout".
+    call_errors: dict[str, int] = field(default_factory=dict)
+    # Embedding or rerank calls that failed, so retrieval fell back to keywords or order.
+    degraded_calls: int = 0
+    # Hashes of the inputs of the SQL that ran and of embedding and rerank calls, to count
+    # repeated calls over a run.
+    sql_hashes: list[str] = field(default_factory=list)
+    embedding_hashes: list[str] = field(default_factory=list)
+    rerank_hashes: list[str] = field(default_factory=list)
+    # Time spent writing the answer's logs at the end.
+    log_write_ms: int = 0
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CaseResult:
         """A result saved with ``asdict``; keys it does not know are left out."""
         names = {item.name for item in fields(cls)}
         return cls(**{key: value for key, value in payload.items() if key in names})
+
+
+# Call kinds whose time is split out per case; the rest of a case's time is "other".
+TIMED_KINDS = ("model", "sql", "embedding", "rerank")
+BACKEND_KINDS = (*TIMED_KINDS, "retrieval")
 
 
 @dataclass(slots=True)
@@ -115,11 +134,26 @@ class Activity:
     describe_calls: int = 0
     search_calls: int = 0
     unseen_rejections: int = 0
+    backend_ms: dict[str, int] = field(default_factory=dict)
+    call_errors: dict[str, int] = field(default_factory=dict)
+    degraded_calls: int = 0
+    sql_hashes: list[str] = field(default_factory=list)
+    embedding_hashes: list[str] = field(default_factory=list)
+    rerank_hashes: list[str] = field(default_factory=list)
 
     @classmethod
     def from_archive(cls, queries: list[dict], calls: list[dict]) -> Activity:
         failed = [item for item in queries if item["status"] != "ok"]
         tool_calls = Counter(item["name"] for item in calls if item["kind"] == "tool")
+        backend_ms = {kind: sum(item["duration_ms"] for item in calls if item["kind"] == kind)
+                      for kind in BACKEND_KINDS}
+        errors = Counter(f"{item['kind']}:{item.get('error_type') or 'other'}"
+                         for item in calls if not item["ok"] and item["kind"] != "tool")
+
+        def hashes(kind: str) -> list[str]:
+            return [item["input_hash"] for item in calls
+                    if item["kind"] == kind and item.get("input_hash")]
+
         return cls(
             sql_attempts=len(queries),
             sql_failures=len(failed),
@@ -130,6 +164,15 @@ class Activity:
             unseen_rejections=sum(item["status"] == "blocked"
                                   and (item["error"] or "").startswith(UNSEEN_PREFIX)
                                   for item in failed),
+            backend_ms={kind: ms for kind, ms in backend_ms.items() if ms},
+            call_errors=dict(errors),
+            degraded_calls=sum(not item["ok"] for item in calls
+                               if item["kind"] in ("embedding", "rerank")),
+            # Blocked SQL never reached the database, so only the queries that ran count.
+            sql_hashes=[item["sql_hash"] for item in queries
+                        if item["status"] != "blocked" and item.get("sql_hash")],
+            embedding_hashes=hashes("embedding"),
+            rerank_hashes=hashes("rerank"),
         )
 
 
@@ -169,6 +212,53 @@ def _average(values: list[int]) -> float:
     return round(sum(values) / len(values), 1) if values else 0.0
 
 
+LONG_CASE_MS = 60_000
+
+
+def _repeats(hash_lists: list[list[str]]) -> dict[str, int]:
+    """Calls whose input was already sent earlier in the run, out of all calls."""
+    every = [digest for digests in hash_lists for digest in digests]
+    return {"calls": len(every), "repeated": len(every) - len(set(every))}
+
+
+def backend_metrics(cases: list[CaseResult]) -> dict[str, Any]:
+    """The figures that tell whether a cache, a rate limiter, circuit breaking, async
+    jobs or moving the logs out of the request would help (plan 1.6)."""
+    timed = [case for case in cases if case.duration_ms]
+    split: dict[str, float] = {}
+    overlapped = 0
+    if timed:
+        for kind in TIMED_KINDS:
+            split[kind] = _average([case.backend_ms.get(kind, 0) for case in timed])
+        others = []
+        for case in timed:
+            spent = sum(case.backend_ms.get(kind, 0) for kind in TIMED_KINDS)
+            overlapped += spent > case.duration_ms
+            others.append(max(case.duration_ms - spent, 0))
+        split["other"] = _average(others)
+        split["total"] = _average([case.duration_ms for case in timed])
+    errors: Counter[str] = Counter()
+    for case in cases:
+        errors.update(case.call_errors)
+    analysis = [case.duration_ms for case in cases if case.category == "analysis"]
+    writes = [case.log_write_ms for case in cases if case.log_id]
+    return {
+        # Average milliseconds per case; "other" is the case's time not in these calls.
+        "time_split_ms": split,
+        # Cases whose calls, run at once, add up to more than the case took.
+        "overlapped_cases": overlapped,
+        "repeats": {"sql": _repeats([case.sql_hashes for case in cases]),
+                    "embedding": _repeats([case.embedding_hashes for case in cases]),
+                    "rerank": _repeats([case.rerank_hashes for case in cases])},
+        "call_errors": dict(sorted(errors.items())),
+        "degraded_calls": sum(case.degraded_calls for case in cases),
+        "long_cases": sum(case.duration_ms > LONG_CASE_MS for case in cases),
+        "analysis_max_ms": max(analysis, default=0),
+        "log_write_ms_avg": _average(writes),
+        "log_write_ms_max": max(writes, default=0),
+    }
+
+
 def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
     """Figures beyond accuracy, to compare runs before and after a change."""
     with_sql = [case for case in cases if case.sql_attempts]
@@ -199,6 +289,7 @@ def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
         "strict_passed": sum(bool(case.strict_passed) for case in compared),
         "failure_hints": dict(Counter(case.failure_hint for case in cases
                                       if not case.passed and case.failure_hint)),
+        "backend": backend_metrics(cases),
     }
 
 
@@ -689,6 +780,11 @@ def _answer_fields(answer: AnswerPayload, activity: Activity, duration_ms: int) 
         "field_errors": activity.field_errors, "describe_calls": activity.describe_calls,
         "search_calls": activity.search_calls,
         "unseen_rejections": activity.unseen_rejections,
+        "backend_ms": activity.backend_ms, "call_errors": activity.call_errors,
+        "degraded_calls": activity.degraded_calls, "sql_hashes": activity.sql_hashes,
+        "embedding_hashes": activity.embedding_hashes,
+        "rerank_hashes": activity.rerank_hashes,
+        "log_write_ms": usage.log_write_ms if usage else 0,
     }
 
 

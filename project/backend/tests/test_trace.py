@@ -13,7 +13,7 @@ from agentscope.tool import FunctionTool, Toolkit
 from app.agent import router, session
 from app.agent.scope_model import ScriptedChatModel
 from app.agent.tools import READ_ONLY_PERMISSION
-from app.agent.trace import CallTrace
+from app.agent.trace import CallTrace, error_type, text_hash, timed
 from app.semantic.cli import format_trace
 
 SCHEMA_FILE = Path(__file__).resolve().parents[2] / "data" / "initdb" / "02_app_schema.sql"
@@ -121,8 +121,67 @@ def test_trace_rows_print_one_line_per_call() -> None:
          "duration_ms": 6500, "input_tokens": 2400, "output_tokens": 180, "ok": 1, "detail": ""},
         {"seq": 2, "agent": "step_1", "kind": "tool", "name": "run_sql", "started_ms": 9000,
          "duration_ms": 120, "input_tokens": 0, "output_tokens": 0, "ok": 0, "detail": "error"},
+        {"seq": 3, "agent": "backend", "kind": "rerank", "name": "qwen3-rerank",
+         "started_ms": 9100, "duration_ms": 5000, "input_tokens": 0, "output_tokens": 0,
+         "ok": 0, "detail": "RerankError: HTTP 429", "error_type": "429"},
     ]
     assert format_trace(rows) == [
-        "  1  +   2.1s    6.5s  planner      model deepseek-chat tokens=2400/180",
-        "  2  +   9.0s    0.1s  step_1       tool  run_sql 失败 error",
+        "  1  +   2.1s    6.5s  planner      model     deepseek-chat tokens=2400/180",
+        "  2  +   9.0s    0.1s  step_1       tool      run_sql 失败 error",
+        "  3  +   9.1s    5.0s  backend      rerank    qwen3-rerank 失败(429) RerankError: HTTP 429",
     ]
+
+
+class _Status(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+
+
+class APITimeoutError(Exception):
+    pass
+
+
+@pytest.mark.parametrize(("exc", "kind"), [
+    (TimeoutError(), "timeout"),
+    (APITimeoutError("Request timed out."), "timeout"),
+    (_Status(429), "429"),
+    (_Status(503), "5xx"),
+    (_Status(400), "other"),
+    (RuntimeError("重排模型返回 HTTP 429：Throttling"), "429"),
+    (RuntimeError("Error code: 502 - bad gateway"), "5xx"),
+    (ValueError("返回 3 行"), "other"),
+])
+def test_failures_are_sorted_by_kind(exc: BaseException, kind: str) -> None:
+    assert error_type(exc) == kind
+
+
+def test_the_cause_of_a_wrapped_failure_is_looked_at() -> None:
+    try:
+        try:
+            raise _Status(429)
+        except _Status as inner:
+            raise RuntimeError("embedding request failed") from inner
+    except RuntimeError as exc:
+        assert error_type(exc) == "429"
+
+
+def test_timed_records_the_call_and_its_failure() -> None:
+    trace = CallTrace()
+    with timed(trace, "sql", "execute_sql", input_text="SELECT  1"):
+        pass
+    with pytest.raises(TimeoutError):
+        with timed(trace, "embedding", "text-embedding-v3", input_text="GMV"):
+            raise TimeoutError("read timed out")
+    ok, failed = trace.records
+    assert (ok.kind, ok.ok, ok.input_hash) == ("sql", True, text_hash("SELECT 1"))
+    assert (failed.kind, failed.ok, failed.error_type) == ("embedding", False, "timeout")
+    assert "read timed out" in failed.detail
+    # Backend calls are not tool calls.
+    assert trace.usage()["tool_calls"] == 0
+
+
+def test_timed_without_a_trace_records_nothing() -> None:
+    with timed(None, "sql", "execute_sql", input_text="SELECT 1"):
+        value = 1
+    assert value == 1

@@ -229,7 +229,8 @@ def _no_connection(settings: Settings):
 
 
 class _Retriever:
-    def retrieve_with_connection(self, question: str, conn: Any) -> RetrievalBundle:
+    def retrieve_with_connection(self, question: str, conn: Any,
+                                 trace: Any = None) -> RetrievalBundle:
         return RetrievalBundle(tables=TABLES)
 
 
@@ -310,3 +311,23 @@ def test_with_every_table_in_the_prompt_nothing_is_checked(agentic) -> None:
                          [TextBlock(text="上个月销量最高的是童装热销款208号，176件。")]],
                         schema_mode="full")
     assert answer.status == "ok" and len(agentic.executed) == 1
+
+
+def test_an_answer_records_its_sql_runs_and_the_log_write_time(
+        agentic, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.agent.trace import text_hash
+    saved: list[Any] = []
+    monkeypatch.setattr(session, "save_call_traces",
+                        lambda conn, log_id, records: saved.extend(records))
+    answer, _ = agentic([
+        [call("search_semantic", question="上个月各商品的销量")],
+        [call("run_sql", sql=SALES_SQL)],
+        [TextBlock(text="上个月销量最高的是童装热销款208号，176件。")],
+    ])
+    kinds = [(record.kind, record.name) for record in saved]
+    assert ("tool", "search_semantic") in kinds and ("tool", "run_sql") in kinds
+    sql = [record for record in saved if record.kind == "sql"]
+    assert len(sql) == 1 and sql[0].name == "execute_sql" and sql[0].ok
+    assert sql[0].input_hash == text_hash(agentic.executed[0])
+    assert answer.usage.tool_calls == 2
+    assert answer.usage.log_write_ms >= 0

@@ -352,3 +352,29 @@ def test_build_reranker_follows_the_settings() -> None:
 def test_the_fake_reranker_prefers_shared_words() -> None:
     results = FakeReranker().rerank("渠道订单", ["广告花费", "订单渠道"], 2)
     assert [result.index for result in results] == [1, 0]
+
+
+def test_a_traced_search_records_its_embedding_and_rerank_calls(semantic: None) -> None:
+    from app.agent.trace import CallTrace, text_hash
+
+    class LimitedReranker:
+        model_name = "limited"
+
+        def rerank(self, query: str, documents: Sequence[str], top_n: int) -> list[RerankResult]:
+            raise RerankError("重排模型返回 HTTP 429：Throttling")
+
+    trace = CallTrace()
+    searcher = _searcher(reranker=OrderReranker(["orders"]))
+    searcher.trace = trace
+    searcher.search("各渠道的订单数", None, use_keyword=False, complete=False)  # type: ignore[arg-type]
+    failing = _searcher(reranker=LimitedReranker())
+    failing.trace = trace
+    failing.search("各渠道的订单数", None, use_keyword=False, complete=False)  # type: ignore[arg-type]
+
+    kinds = [(record.kind, record.name, record.ok, record.error_type) for record in trace.records]
+    assert kinds == [("embedding", "stub-embedding", True, ""), ("rerank", "order-rerank", True, ""),
+                     ("embedding", "stub-embedding", True, ""), ("rerank", "limited", False, "429")]
+    assert trace.records[0].input_hash == text_hash("各渠道的订单数")
+    # The same query and candidates send the same rerank input.
+    assert trace.records[1].input_hash == trace.records[3].input_hash
+    assert "HTTP 429" in trace.records[3].detail

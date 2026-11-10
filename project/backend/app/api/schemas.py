@@ -105,6 +105,8 @@ class CallUsage(BaseModel):
     cached_input_tokens: int = 0
     # Summed over calls; steps running at once make it exceed the answer's duration.
     model_ms: int = 0
+    # Writing the answer's log, call and query records at the end.
+    log_write_ms: int = 0
 
 
 # "partial": some queries ran but the answer is incomplete; "error": no query result at all;

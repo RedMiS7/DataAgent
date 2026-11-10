@@ -39,8 +39,14 @@ def test_loose_compare_matches_each_value_to_its_own_cell() -> None:
     assert compare_rows_loose([[5, 5]], [[5, 6, 5]])
 
 
-def _query(status: str, error: str = "") -> dict:
-    return {"status": status, "error": error}
+def _query(status: str, error: str = "", sql_hash: str = "") -> dict:
+    return {"status": status, "error": error, "sql_hash": sql_hash}
+
+
+def _call(kind: str, name: str, duration_ms: int = 0, ok: bool = True, error_type: str = "",
+          input_hash: str = "") -> dict:
+    return {"kind": kind, "name": name, "duration_ms": duration_ms, "ok": ok,
+            "error_type": error_type, "input_hash": input_hash}
 
 
 def test_activity_counts_attempts_failures_and_field_errors_from_the_archive() -> None:
@@ -50,14 +56,13 @@ def test_activity_counts_attempts_failures_and_field_errors_from_the_archive() -
         _query("blocked", runner.UNSEEN_PREFIX + "refunds。先调用 search_semantic"),
         _query("ok"),
     ]
-    calls = [{"kind": "model", "name": "deepseek-chat"},
-             {"kind": "tool", "name": "describe_table"},
-             {"kind": "tool", "name": "search_semantic"},
-             {"kind": "tool", "name": "search_semantic"},
-             {"kind": "tool", "name": "run_sql"}]
+    calls = [_call("model", "deepseek-chat"), _call("tool", "describe_table"),
+             _call("tool", "search_semantic"), _call("tool", "search_semantic"),
+             _call("tool", "run_sql")]
     activity = Activity.from_archive(queries, calls)
-    assert activity == Activity(sql_attempts=4, sql_failures=3, field_errors=2,
-                                describe_calls=1, search_calls=2, unseen_rejections=1)
+    assert (activity.sql_attempts, activity.sql_failures, activity.field_errors,
+            activity.describe_calls, activity.search_calls, activity.unseen_rejections) == (
+        4, 3, 2, 1, 2, 1)
 
 
 def test_activity_is_read_by_log_id_and_empty_without_one(monkeypatch: pytest.MonkeyPatch) -> None:

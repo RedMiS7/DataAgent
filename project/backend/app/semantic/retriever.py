@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.engine import Connection
 
+from ..agent.trace import CallTrace, timed
 from ..config import Settings
 from ..db.engine import app_connection, business_connection
 from ..embedding.base import EmbeddingProvider
@@ -44,11 +45,19 @@ class SemanticRetriever:
         self.store = store
         self.embedder = embedder
 
-    def retrieve(self, question: str) -> RetrievalBundle:
+    def retrieve(self, question: str, trace: CallTrace | None = None) -> RetrievalBundle:
         with app_connection(self.settings) as conn:
-            return self.retrieve_with_connection(question, conn)
+            return self.retrieve_with_connection(question, conn, trace)
 
-    def retrieve_with_connection(self, question: str, conn: Connection) -> RetrievalBundle:
+    def retrieve_with_connection(self, question: str, conn: Connection,
+                                 trace: CallTrace | None = None) -> RetrievalBundle:
+        """Retrieve for one question; with ``trace``, the retrieval and its embedding call
+        are recorded on it."""
+        with timed(trace, "retrieval", "semantic_retrieve"):
+            return self._retrieve(question, conn, trace)
+
+    def _retrieve(self, question: str, conn: Connection,
+                  trace: CallTrace | None) -> RetrievalBundle:
         bundle = RetrievalBundle()
         bundle.tables = repository.fetch_tables(conn)
         schema_items = repository.fetch_schema_items(conn)
@@ -61,7 +70,8 @@ class SemanticRetriever:
             return self._keyword_fallback(question, bundle, schema_items, metrics, cases, entities)
 
         try:
-            bundle = self._vector_retrieve(question, bundle, schema_items, metrics, cases, entities)
+            bundle = self._vector_retrieve(question, bundle, schema_items, metrics, cases,
+                                           entities, trace)
             return self._fill_missing_with_keyword(question, bundle, schema_items, metrics, cases)
         except Exception as exc:
             fallback = self._keyword_fallback(question, bundle, schema_items, metrics, cases, entities)
@@ -120,9 +130,11 @@ class SemanticRetriever:
 
     def _vector_retrieve(self, question: str, bundle: RetrievalBundle,
                          schema_items: list[SchemaItem], metrics: list[Metric],
-                         cases: list[CaseHit], entities: list[dict[str, str]]) -> RetrievalBundle:
+                         cases: list[CaseHit], entities: list[dict[str, str]],
+                         trace: CallTrace | None = None) -> RetrievalBundle:
         assert self.store is not None and self.embedder is not None
-        vector = self.embedder.embed([question])[0]
+        with timed(trace, "embedding", self.embedder.model_name, input_text=question):
+            vector = self.embedder.embed([question])[0]
         threshold = self.settings.retrieval_min_score
         top_k = self.settings.retrieval_top_k
 

@@ -47,6 +47,45 @@ def print_metrics(metrics: dict[str, Any]) -> None:
         hints = "，".join(f"{name} {count}" for name, count in
                          sorted(metrics["failure_hints"].items(), key=lambda item: -item[1]))
         print(f"  失败现象：{hints}")
+    if metrics.get("backend"):
+        print_backend(metrics["backend"])
+
+
+SPLIT_LABELS = {"model": "模型", "sql": "SQL", "embedding": "embedding", "rerank": "重排",
+                "other": "其他"}
+SERVICE_LABELS = {"model": "模型", "sql": "SQL", "embedding": "embedding", "rerank": "重排",
+                  "retrieval": "检索"}
+
+
+def print_backend(backend: dict[str, Any]) -> None:
+    """The six backend figures of plan 1.6."""
+    split = backend["time_split_ms"]
+    if not split:
+        return
+    print("  后端指标：")
+    parts = "，".join(f"{SPLIT_LABELS[name]} {split[name] / 1000:.1f}" for name in SPLIT_LABELS)
+    note = (f"（{backend['overlapped_cases']} 题的调用同时进行，各项相加超过总耗时）"
+            if backend["overlapped_cases"] else "")
+    print(f"    每题耗时拆分（秒，平均）：{parts}，合计 {split['total'] / 1000:.1f}{note}")
+    repeats = "，".join(
+        f"{SPLIT_LABELS[name]} {item['repeated']}/{item['calls']}"
+        f"（{item['repeated'] / item['calls'] * 100:.0f}%）" if item["calls"]
+        else f"{SPLIT_LABELS[name]} 0/0"
+        for name, item in backend["repeats"].items())
+    print(f"    重复请求（重复次数/调用次数）：{repeats}")
+    errors = backend["call_errors"]
+    if errors:
+        text = "，".join(f"{SERVICE_LABELS.get(key.split(':')[0], key.split(':')[0])} "
+                         f"{key.split(':')[1]} {count}" for key, count in errors.items())
+    else:
+        text = "无"
+    print(f"    调用失败（服务 类型 次数）：{text}")
+    print(f"    降级：{backend['degraded_calls']} 次（embedding 或重排失败后退回）")
+    print(f"    长耗时：超过 60 秒 {backend['long_cases']} 题"
+          + (f"，分析题最长 {backend['analysis_max_ms'] / 1000:.1f} 秒"
+             if backend["analysis_max_ms"] else ""))
+    print(f"    写日志耗时：平均 {backend['log_write_ms_avg']:.0f} ms，"
+          f"最长 {backend['log_write_ms_max']} ms")
 
 
 def pass_counts(cases: list[CaseResult]) -> dict[str, tuple[int, int]]:

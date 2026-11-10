@@ -20,6 +20,7 @@ from ..db.engine import app_connection, business_connection
 from ..nl2sql.executor import ExecutionResult, SQLExecutionError, execute_sql
 from ..safety.validator import (
     Columns,
+    SafeSQL,
     SQLPolicy,
     SQLValidationError,
     unknown_column_hint,
@@ -39,7 +40,7 @@ from ..semantic.schema_context import (
 )
 from ..semantic.table_search import TableSearcher, render_search
 from .session import PREVIEW_ROWS, QueryRecord
-from .trace import CallTrace
+from .trace import CallTrace, timed
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,12 @@ def _one_line(sql: str) -> str:
 def _database_error(exc: SQLExecutionError) -> str:
     """The database's own message, without SQLAlchemy's copy of the statement."""
     return str(getattr(exc.__cause__, "orig", None) or exc)
+
+
+def _traced_execute(context: AgentRunContext, safe_sql: SafeSQL) -> ExecutionResult:
+    """Run a checked query, recording its time and any failure on the question's trace."""
+    with timed(context.trace, "sql", "execute_sql", input_text=safe_sql.sql):
+        return execute_sql(context.settings, safe_sql)
 
 
 def describe_tables(settings: Settings, names: list[str]) -> str:
@@ -218,7 +225,7 @@ def _make_search(context: AgentRunContext) -> Callable[[str], str]:
         Args:
             question: 需要检索的自然语言问题。
         """
-        bundle = context.retriever.retrieve(question)
+        bundle = context.retriever.retrieve(question, context.trace)
         context.bundle = bundle
         return bundle.to_prompt_context()
 
@@ -391,7 +398,7 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
         started = time.perf_counter()
         try:
             # In a thread, so plan steps running at once are not held up by the database.
-            execution = await asyncio.to_thread(execute_sql, context.settings, safe_sql)
+            execution = await asyncio.to_thread(_traced_execute, context, safe_sql)
         except SQLExecutionError as exc:
             context.reserved -= 1
             step_reserved -= 1

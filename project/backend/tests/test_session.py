@@ -10,10 +10,11 @@ from app.semantic.cli import format_answer, format_executions
 
 
 class FakeConnection:
-    """Records each statement; answers the column lookup of query_logs."""
+    """Records each statement; answers the column lookup of each table."""
 
-    def __init__(self, columns: list[str] | None = None, rows: list[Any] | None = None) -> None:
-        self.columns = columns or []
+    def __init__(self, columns: dict[str, list[str]] | None = None,
+                 rows: list[Any] | None = None) -> None:
+        self.columns = columns or {}
         self.rows = rows or []
         self.statements: list[tuple[str, Any]] = []
 
@@ -21,15 +22,18 @@ class FakeConnection:
         sql = str(statement)
         self.statements.append((sql, params))
         if "information_schema.COLUMNS" in sql:
-            return [(name,) for name in self.columns]
+            return [(name,) for name in self.columns.get(params["table"], [])]
         return self.rows
 
 
 OLD_QUERY_LOG = ["id", "session_id", "question", "status", "error_message", "created_at"]
+OLD_TABLES = {"query_logs": OLD_QUERY_LOG,
+              "call_traces": ["id", "log_id", "detail", "created_at"],
+              "query_executions": ["id", "log_id", "sql_text", "status"]}
 
 
 def test_old_databases_get_the_new_tables_and_columns_in_order() -> None:
-    conn = FakeConnection(OLD_QUERY_LOG)
+    conn = FakeConnection(OLD_TABLES)
     session.ensure_log_tables(conn)  # type: ignore[arg-type]
     sqls = [sql for sql, _ in conn.statements]
     assert any("CREATE TABLE IF NOT EXISTS call_traces" in sql for sql in sqls)
@@ -41,11 +45,21 @@ def test_old_databases_get_the_new_tables_and_columns_in_order() -> None:
         "ALTER TABLE query_logs ADD COLUMN warnings JSON NULL AFTER summary_source",
         "ALTER TABLE query_logs ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'web' "
         "AFTER warnings",
+        "ALTER TABLE call_traces ADD COLUMN error_type VARCHAR(16) NOT NULL DEFAULT '' "
+        "AFTER detail",
+        "ALTER TABLE call_traces ADD COLUMN input_hash CHAR(16) NOT NULL DEFAULT '' "
+        "AFTER error_type",
+        "ALTER TABLE query_executions ADD COLUMN sql_hash CHAR(16) NOT NULL DEFAULT '' "
+        "AFTER sql_text",
     ]
 
 
 def test_up_to_date_databases_are_left_alone() -> None:
-    conn = FakeConnection([*OLD_QUERY_LOG, *session.QUERY_LOG_COLUMNS])
+    conn = FakeConnection({
+        "query_logs": [*OLD_QUERY_LOG, *session.QUERY_LOG_COLUMNS],
+        **{table: [*OLD_TABLES[table], *(name for name, _, _ in columns)]
+           for table, columns in session.LATER_COLUMNS.items()},
+    })
     session.ensure_log_tables(conn)  # type: ignore[arg-type]
     assert not [sql for sql, _ in conn.statements if sql.startswith("ALTER")]
 
@@ -128,3 +142,16 @@ def test_show_trace_prints_the_conclusion_and_each_query() -> None:
     assert lines[6] == "    | a | b"
     assert lines[-1] == "    | …… 另有 2 行存档"
     assert len(lines) == 13
+
+
+def test_saved_calls_and_queries_carry_their_error_type_and_hashes() -> None:
+    from app.agent.trace import CallRecord, text_hash
+    conn = FakeConnection()
+    session.save_call_traces(conn, 5, [CallRecord(  # type: ignore[arg-type]
+        agent="backend", kind="rerank", name="qwen3-rerank", started_ms=1, duration_ms=2,
+        ok=False, detail="HTTP 429", error_type="429", input_hash="abc")])
+    session.save_query_executions(conn, 5, [QueryRecord(sql="SELECT  1", status="ok")])  # type: ignore[arg-type]
+    (calls_sql, calls), (queries_sql, queries) = conn.statements
+    assert "error_type, input_hash" in calls_sql
+    assert (calls[0]["error_type"], calls[0]["input_hash"]) == ("429", "abc")
+    assert "sql_hash" in queries_sql and queries[0]["sql_hash"] == text_hash("SELECT 1")

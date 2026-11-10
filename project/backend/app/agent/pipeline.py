@@ -365,7 +365,7 @@ class AskPipeline:
             })
 
             emit("status", {"step": "retrieving", "message": "正在检索字段、指标口径和历史案例"})
-            bundle = self.retriever.retrieve_with_connection(rewritten, conn)
+            bundle = self.retriever.retrieve_with_connection(rewritten, conn, trace)
             emit("status", {"step": "retrieved", "message": "检索完成",
                             "retrieval": _retrieval_view(bundle)})
             schema = self._schema(conn, bundle, client_history, tag)
@@ -407,7 +407,7 @@ class AskPipeline:
             if schema is not None and schema.agentic:
                 # Built per question: the rerank key may be saved after start-up.
                 context.searcher = TableSearcher(self.settings, self.retriever,
-                                                 build_reranker(self.settings))
+                                                 build_reranker(self.settings), trace)
                 context.visible_tables = set(schema.tables)
                 context.require_visible = True
             if route is not None and route.chosen == "direct":
@@ -763,6 +763,7 @@ class AskPipeline:
 
         # Feedback turns a logged SQL into a case. One SQL cannot stand for an analysis.
         log_sql = "" if mode == "analysis" else sql_text
+        writing = time.perf_counter()
         log_id = session.save_query_log(
             conn, session_id, question, rewritten, log_sql, status, retries, duration_ms,
             len(result.rows) if result else 0, self.settings.llm_model,
@@ -771,6 +772,7 @@ class AskPipeline:
             source=self.source)
         session.save_call_traces(conn, log_id, trace.ordered())
         session.save_query_executions(conn, log_id, queries or [])
+        log_write_ms = int((time.perf_counter() - writing) * 1000)
 
         payload = AnswerPayload(
             question=question,
@@ -794,7 +796,7 @@ class AskPipeline:
             results=results,
             route=route,
             plan=plan or [],
-            usage=CallUsage(**trace.usage()),
+            usage=CallUsage(**trace.usage(), log_write_ms=log_write_ms),
         )
 
         tag = session.log_tag(session_id)

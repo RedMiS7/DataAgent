@@ -63,7 +63,8 @@ class StagedModel(ScriptedChatModel):
 
 
 class OneMetricRetriever:
-    def retrieve_with_connection(self, question: str, conn: object) -> RetrievalBundle:
+    def retrieve_with_connection(self, question: str, conn: object,
+                                 trace: Any = None) -> RetrievalBundle:
         return RetrievalBundle(metrics=[MetricHit(metric=GMV, score=0.9)])
 
 

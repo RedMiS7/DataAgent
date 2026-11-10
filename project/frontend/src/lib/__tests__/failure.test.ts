@@ -61,6 +61,7 @@ describe("feedback and SQL label", () => {
     expect(canGiveFeedback(answer({ status: "partial" }))).toBe(true);
     expect(canGiveFeedback(answer({ status: "error" }))).toBe(false);
     expect(canGiveFeedback(answer({ status: "refused" }))).toBe(false);
+    expect(canGiveFeedback(answer({ status: "clarify" }))).toBe(false);
     expect(canGiveFeedback(answer({ log_id: null }))).toBe(false);
     expect(canGiveFeedback(undefined)).toBe(false);
   });

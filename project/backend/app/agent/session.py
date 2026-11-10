@@ -52,6 +52,8 @@ QUERY_LOG_COLUMNS = {
     "summary_source": "VARCHAR(16) NOT NULL DEFAULT ''",
     "warnings": "JSON NULL",
     "source": "VARCHAR(16) NOT NULL DEFAULT 'web'",
+    "intent": "JSON NULL",
+    "conclusion": "JSON NULL",
 }
 # Columns the call and query archives gained later: (column, definition, after which).
 LATER_COLUMNS = {
@@ -93,15 +95,17 @@ def save_query_log(conn: Connection, session_id: str, question: str, rewritten: 
                    row_count: int, model_name: str, prompt_tokens: int,
                    completion_tokens: int, error_message: str = "", *, summary: str = "",
                    summary_source: str = "", warnings: list[str] | None = None,
-                   source: LogSource = "web") -> int:
+                   source: LogSource = "web", intent: dict[str, Any] | None = None,
+                   conclusion: dict[str, Any] | None = None) -> int:
     result = conn.execute(
         text(
             "INSERT INTO query_logs (session_id, question, rewritten_question, sql_text, status, "
             "retry_count, duration_ms, row_count, model_name, prompt_tokens, completion_tokens, "
-            "error_message, summary, summary_source, warnings, source, created_at) VALUES "
-            "(:session_id, :question, :rewritten, :sql_text, :status, :retry_count, "
-            ":duration_ms, :row_count, :model_name, :prompt_tokens, :completion_tokens, "
-            ":error_message, :summary, :summary_source, :warnings, :source, NOW())"
+            "error_message, summary, summary_source, warnings, source, intent, conclusion, "
+            "created_at) VALUES (:session_id, :question, :rewritten, :sql_text, :status, "
+            ":retry_count, :duration_ms, :row_count, :model_name, :prompt_tokens, "
+            ":completion_tokens, :error_message, :summary, :summary_source, :warnings, :source, "
+            ":intent, :conclusion, NOW())"
         ),
         {"session_id": session_id, "question": question, "rewritten": rewritten or None,
          "sql_text": sql_text, "status": status, "retry_count": retry_count,
@@ -110,7 +114,10 @@ def save_query_log(conn: Connection, session_id: str, question: str, rewritten: 
          "error_message": error_message[:500] if error_message else "",
          "summary": summary or None, "summary_source": summary_source,
          "warnings": json.dumps(warnings, ensure_ascii=False) if warnings else None,
-         "source": source},
+         "source": source,
+         "intent": json.dumps(intent, ensure_ascii=False) if intent else None,
+         "conclusion": json.dumps(conclusion, ensure_ascii=False, default=str)
+         if conclusion else None},
     )
     return int(result.lastrowid)
 
@@ -169,13 +176,15 @@ def _preview(record: QueryRecord) -> str | None:
 def load_query_log(conn: Connection, log_id: int) -> dict | None:
     row = conn.execute(
         text("SELECT id, question, status, source, summary, summary_source, warnings, "
-             "error_message, duration_ms FROM query_logs WHERE id = :log_id"),
+             "intent, conclusion, error_message, duration_ms FROM query_logs WHERE id = :log_id"),
         {"log_id": log_id},
     ).first()
     if row is None:
         return None
     log = dict(row._mapping)
     log["warnings"] = _json_value(log["warnings"]) or []
+    log["intent"] = _json_value(log["intent"]) or {}
+    log["conclusion"] = _json_value(log["conclusion"]) or {}
     return log
 
 

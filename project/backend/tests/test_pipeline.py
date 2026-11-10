@@ -18,7 +18,6 @@ from app.agent.answer import (
     select_execution,
     strip_citations,
     time_range_warning,
-    unverified_numbers,
 )
 from app.agent.pipeline import (
     AskPipeline,
@@ -143,25 +142,29 @@ def test_user_content_carries_the_baseline_dates() -> None:
     assert "对比期 上上个月：日期 >= '2026-08-01' 且 < '2026-09-01'" in content
 
 
-def test_select_execution_prefers_the_query_behind_the_conclusion() -> None:
+def test_select_execution_shows_the_query_the_conclusion_cites() -> None:
     answer = result(AUGUST_SQL, [["母婴热销款145号", 63]])
     extra = result(SEPTEMBER_SQL, [["童装热销款208号", 176]])
-    assert select_execution([answer, extra], "销量最差的是母婴热销款145号，仅63件。") is answer
+    assert select_execution([answer, extra], [1]) is answer
+    assert select_execution([answer, extra], [2, 1]) is extra
 
 
-def test_select_execution_uses_the_latest_match_after_a_correction() -> None:
-    wrong = result(AUGUST_SQL, [["甲", 63]])
-    fixed = result(SEPTEMBER_SQL, [["乙", 63]])
-    assert select_execution([wrong, fixed], "销量是63件。") is fixed
+def test_select_execution_skips_a_cited_query_without_rows() -> None:
+    empty = result(AUGUST_SQL, [])
+    filled = result(SEPTEMBER_SQL, [["乙", 63]])
+    assert select_execution([empty, filled], [1, 2]) is filled
+    assert select_execution([empty, filled], [1]) is empty
 
 
-def test_select_execution_falls_back_to_the_first_result_with_rows() -> None:
+def test_select_execution_without_a_citation_takes_the_last_result_with_rows() -> None:
     empty = result(AUGUST_SQL, [])
     first = result(SEPTEMBER_SQL, [["乙", 1]])
     second = result(SEPTEMBER_SQL, [["丙", 2]])
-    assert select_execution([empty, first, second], "没有数字的结论") is first
-    assert select_execution([empty], "") is empty
-    assert select_execution([], "") is None
+    assert select_execution([first, second]) is second
+    assert select_execution([first, second, empty]) is second
+    assert select_execution([first, empty], []) is first
+    assert select_execution([empty]) is empty
+    assert select_execution([]) is None
 
 
 @pytest.mark.parametrize("sql, warns", [
@@ -212,9 +215,10 @@ def ask(monkeypatch: pytest.MonkeyPatch):
     def run(question: str, script: list[list[Any]], mode: str = "query",
             history: list[HistoryMessage] | None = None, emit: Any = None,
             route: list[Any] | None = None, source: str = "web"):
-        # The first model built goes to the agent, the second to the router.
-        models = iter([ScriptedChatModel(script), ScriptedChatModel([route or []])])
-        monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: next(models))
+        monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: ScriptedChatModel(script))
+        if route is not None:
+            monkeypatch.setattr(pipeline, "build_router_model",
+                                lambda settings: ScriptedChatModel([route]))
         settings = Settings(_env_file=None, as_of_date=AS_OF)
         return AskPipeline(settings, StubRetriever(), source).ask(  # type: ignore[arg-type]
             question, "test", emit, mode,  # type: ignore[arg-type]
@@ -231,18 +235,61 @@ def call(name: str, **arguments: str) -> ToolCallBlock:
                          input=json.dumps(arguments, ensure_ascii=False))
 
 
-def test_extra_query_does_not_replace_the_answer(ask) -> None:
+def test_the_table_follows_the_query_the_conclusion_cites(ask) -> None:
     answer = ask("上上个月哪个商品卖的最差", [
         [call("run_sql", sql=AUGUST_SQL)],
         [call("run_sql", sql=SEPTEMBER_SQL)],
-        [TextBlock(text="上上个月销量最差的是母婴热销款145号，仅63件。")],
+        [TextBlock(text="上上个月销量最差的是母婴热销款145号，仅63件。[查询1]")],
     ])
     assert answer.status == "ok"
     assert answer.table is not None and answer.table.rows == [["母婴热销款145号", 63]]
     assert answer.sql.endswith("LIMIT 10") and "2026-08-01" in answer.sql
+    # One table is shown, so the mark is dropped from the sentence.
+    assert answer.summary == "上上个月销量最差的是母婴热销款145号，仅63件。"
     assert answer.summary_source == "model"
     assert answer.warnings == []
     assert answer.retries == 2
+
+
+def test_without_a_citation_the_last_query_with_rows_is_shown(ask) -> None:
+    answer = ask("上个月哪个商品卖的最好", [
+        [call("run_sql", sql=AUGUST_SQL)],
+        [call("run_sql", sql=SEPTEMBER_SQL)],
+        [TextBlock(text="上个月销量最高的是童装热销款208号，176件。")],
+    ])
+    assert answer.table is not None and answer.table.rows == [["童装热销款208号", 176]]
+    assert "2026-09-01" in answer.sql
+    assert answer.summary_source == "model"
+
+
+@pytest.mark.parametrize("conclusion", [
+    # A difference worked out from two rows, and a duration: neither is a queried value.
+    "最近30天销量最高的是童装热销款208号，176件，比上上个月的冠军多 113 件。",
+    "童装热销款208号卖得最好。",
+    "上个月销量最高的是童装热销款208号，共 176 件。" + "它在各个渠道都排在前面，" * 12 + "建议继续备货。",
+    "查询 SQL 返回的结果里，销量第一是童装热销款208号。",
+])
+def test_the_model_conclusion_is_kept_as_written(ask, conclusion: str) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+    answer = ask("上个月卖得最好的商品是哪个", [
+        [call("run_sql", sql=SEPTEMBER_SQL)],
+        [TextBlock(text=conclusion)],
+    ], emit=lambda event, data: events.append((event, data)))
+    assert answer.summary == conclusion
+    assert answer.summary_source == "model"
+    assert answer.warnings == []
+    assert not any(data.get("step") == "summary_fallback" for _, data in events)
+    assert ask.saved["log"]["summary"] == conclusion
+
+
+def test_the_template_is_used_only_when_the_model_wrote_no_conclusion(ask) -> None:
+    answer = ask("上个月卖得最好的商品是哪个", [
+        [call("run_sql", sql=SEPTEMBER_SQL)],
+        [TextBlock(text=" ")],
+    ])
+    assert answer.status == "ok"
+    assert answer.summary_source == "template"
+    assert answer.summary == "name=童装热销款208号、qty=176。"
 
 
 def test_query_mode_archives_the_conclusion_and_every_query(ask) -> None:
@@ -275,9 +322,9 @@ def test_model_only_sees_the_current_question(ask, monkeypatch: pytest.MonkeyPat
     seen: list[str] = []
     original = AskPipeline._user_content
 
-    def capture(self: AskPipeline, question: str, time_range: Any) -> str:
+    def capture(self: AskPipeline, question: str, time_range: Any, note: str = "") -> str:
         seen.append(question)
-        return original(self, question, time_range)
+        return original(self, question, time_range, note)
 
     monkeypatch.setattr(AskPipeline, "_user_content", capture)
     ask("那上上个月呢？", [[call("run_sql", sql=AUGUST_SQL)], [TextBlock(text="共63件。")]])
@@ -337,31 +384,6 @@ def test_strip_citations_for_history() -> None:
     assert strip_citations("增长 6.3%[查询1][查询2]") == "增长 6.3%"
 
 
-@pytest.mark.parametrize("summary, missing", [
-    ("GMV 966.6 万，共 16075 单 [查询1]", []),
-    ("增长 6.3%，占比 12.5%", []),
-    ("下降 6.3%", []),
-    ("童装热销款208号卖得最好", []),
-    ("共 3 行", []),
-    ("最近30天，10月2日起，前10名，第2周", []),
-    ("2026-10-02 之后", []),
-    ("退款 4.99 万，占 5.5%", ["4.99万", "5.5%"]),
-    ("GMV 966.7 万", ["966.7万"]),
-    ("GMV 968 万，再说一次 968 万", ["968万"]),
-])
-def test_unverified_numbers(summary: str, missing: list[str]) -> None:
-    rows = [[9665990.5, 16075, -6.3], [0.125, 0, 0], ["童装热销款208号", 0, 0]]
-    assert unverified_numbers(summary, "最近30天怎么样", [rows]) == missing
-
-
-def test_numbers_from_the_question_are_not_checked() -> None:
-    assert unverified_numbers("按 37 这个门槛看", "门槛 37 够吗", [[[1]]]) == []
-
-
-def test_numbers_are_checked_against_every_given_query() -> None:
-    assert unverified_numbers("1234 和 5678", "问题", [[[1234]], [[5678]]]) == []
-
-
 NO_PLAN = [TextBlock(text="不是计划")]
 
 
@@ -408,12 +430,19 @@ def analyze(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_analysis_shows_only_the_cited_queries(analyze) -> None:
+    conclusion = json.dumps({
+        "judgement": "整体不错。",
+        "points": [{"claim": "GMV 966.6 万", "evidence": [{"query": 1, "rows": [0],
+                                                          "columns": ["本期GMV"]}]},
+                   {"claim": "鞋靴销量 200", "evidence": [{"query": 3, "rows": [0]}]}],
+        "advice": "加投放"}, ensure_ascii=False)
     answer, _ = analyze([
         [call("run_sql", sql=OVERALL_SQL, purpose="整体")],
         [call("run_sql", sql=OVERALL_SQL, purpose="没用上的查询")],
         [call("run_sql", sql=CATEGORY_SQL, purpose="类目拆分")],
-        [TextBlock(text="整体不错。\n- GMV 966.6 万 [查询1]\n- 鞋靴销量 200 [查询3]\n- 建议：加投放")],
+        [TextBlock(text=conclusion)],
     ])
+    assert answer.summary == "整体不错。\n- GMV 966.6 万[查询1]\n- 鞋靴销量 200[查询3]\n- 建议：加投放"
     assert answer.status == "ok"
     assert answer.mode == "analysis"
     assert answer.summary_source == "model"
@@ -433,15 +462,22 @@ def test_analysis_shows_every_query_without_citations(analyze) -> None:
     assert answer.results[0].purpose == "查询 1"
 
 
-def test_analysis_keeps_the_conclusion_and_flags_unknown_numbers(analyze) -> None:
+def test_analysis_keeps_the_conclusion_as_written(analyze) -> None:
+    # 6.3% is in no query result; the conclusion is no longer checked by code.
     text = "整体增长。\n- GMV 966.6 万，增长 6.3% [查询1]"
     answer, _ = analyze([[call("run_sql", sql=OVERALL_SQL)], [TextBlock(text=text)]])
     assert answer.summary == text
     assert answer.summary_source == "model"
-    assert answer.warnings == ["这些数字未能在查询结果中核对：6.3%"]
+    assert answer.warnings == []
 
 
-def test_analysis_archives_its_conclusion_warnings_and_numbered_queries(analyze) -> None:
+def test_analysis_without_a_conclusion_uses_the_template(analyze) -> None:
+    answer, _ = analyze([[call("run_sql", sql=OVERALL_SQL)], [TextBlock(text=" ")]])
+    assert answer.summary_source == "template"
+    assert answer.summary and answer.warnings == []
+
+
+def test_analysis_archives_its_conclusion_and_numbered_queries(analyze) -> None:
     text = "整体增长。\n- GMV 966.6 万，增长 6.3% [查询1]"
     answer, saved = analyze([
         [call("run_sql", sql=OVERALL_SQL, purpose="整体")],
@@ -450,7 +486,7 @@ def test_analysis_archives_its_conclusion_warnings_and_numbered_queries(analyze)
     ])
     assert saved["log"]["summary"] == answer.summary == text
     assert saved["log"]["summary_source"] == "model"
-    assert saved["log"]["warnings"] == answer.warnings != []
+    assert saved["log"]["warnings"] == answer.warnings == []
     # Uncited queries are archived too: the reviewer sees the model's dead ends.
     assert [(item.query_no, item.purpose, item.status) for item in saved["queries"]] == [
         (1, "整体", "ok"), (2, "类目拆分", "ok")]
@@ -472,10 +508,11 @@ def test_query_mode_still_logs_its_sql(analyze) -> None:
 
 def test_analysis_stops_running_queries_at_the_limit(analyze) -> None:
     script = [[call("run_sql", sql=OVERALL_SQL)] for _ in range(tools.ANALYSIS_MAX_QUERIES + 1)]
-    answer, _ = analyze([*script, [TextBlock(text="整体平稳。")]])
+    answer, saved = analyze([*script, [TextBlock(text="整体平稳。")]])
     assert len(answer.results) == tools.ANALYSIS_MAX_QUERIES
     assert answer.retries == tools.ANALYSIS_MAX_QUERIES
     assert any("查询次数已用完" in warning for warning in answer.warnings)
+    assert saved["log"]["warnings"] == answer.warnings
 
 
 def test_analysis_lists_each_query_as_a_step(analyze) -> None:
@@ -658,14 +695,16 @@ def test_an_unreadable_route_falls_back_to_query(ask) -> None:
     assert answer.route is not None and answer.route.source == "fallback"
 
 
-def test_an_explicit_mode_skips_the_router(ask, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fail(*args: Any) -> None:
-        raise AssertionError("router must not run")
-
-    monkeypatch.setattr(pipeline, "route_question", fail)
-    answer = ask("上上个月哪个商品卖的最差", [[call("run_sql", sql=AUGUST_SQL)],
-                                       [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")]])
+def test_an_explicit_mode_reads_the_intent_but_keeps_the_mode(ask) -> None:
+    # The router would pick analysis; the user picked query, so query runs.
+    answer = ask("上上个月哪个商品卖的最差", [
+        [call("run_sql", sql=AUGUST_SQL)],
+        [TextBlock(text="销量最差的是母婴热销款145号，仅63件。")],
+    ], route=[TextBlock(text='{"route": "analysis", "reason": "问原因", "metrics": '
+                             '[{"term": "销量", "custom": "销售件数"}]}')])
     assert answer.route is None
+    assert answer.mode == "query"
+    assert answer.intent is not None and "销售件数" in answer.intent.text
 
 
 def test_sensitive_questions_are_refused_before_routing(ask, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -901,7 +940,7 @@ def test_attribution_compares_with_the_baseline_or_the_previous_month(
                               "label": "2026-08-01 至 2026-08-31"}
 
 
-# Figures quoted without their citation
+# Only the cited queries are shown
 
 def _two_products(ask, conclusion: str):
     return ask("最近哪些商品值得推？", [
@@ -912,13 +951,29 @@ def _two_products(ask, conclusion: str):
     ], mode="analysis", history=[])
 
 
-def test_a_product_from_an_uncited_query_is_verified_and_shown(ask) -> None:
-    answer = _two_products(ask, "童装更强。\n- 母婴热销款145号 63 件 [查询1]\n- 建议：加推童装208号，176 件")
+def test_a_figure_from_an_uncited_query_does_not_add_that_query(ask) -> None:
+    conclusion = json.dumps({
+        "judgement": "童装更强。",
+        "points": [{"claim": "母婴热销款145号 63 件", "evidence": [{"query": 1, "rows": [0]}]}],
+        "advice": "加推童装208号，176 件"}, ensure_ascii=False)
+    answer = _two_products(ask, conclusion)
+    assert answer.summary == "童装更强。\n- 母婴热销款145号 63 件[查询1]\n- 建议：加推童装208号，176 件"
     assert answer.warnings == []
+    assert [item.index for item in answer.results] == [1]
+
+
+def test_without_a_readable_conclusion_every_query_is_shown(ask) -> None:
+    # Plain text, and the rewrite gives nothing: the text is shown with every query.
+    conclusion = "童装更强。\n- 母婴热销款145号 63 件 [查询1]"
+    answer = _two_products(ask, conclusion)
+    assert answer.summary == "童装更强。\n- 母婴热销款145号 63 件 [查询1]"
+    assert answer.conclusion is None
     assert [item.index for item in answer.results] == [1, 2]
 
 
-def test_a_product_no_query_returned_is_still_flagged(ask) -> None:
-    answer = _two_products(ask, "童装更强。\n- 母婴热销款145号 63 件 [查询1]\n- 建议：加推鞋靴999号")
-    assert answer.warnings == ["这些数字未能在查询结果中核对：999"]
-    assert [item.index for item in answer.results] == [1]
+def test_every_cited_query_is_shown_in_order(ask) -> None:
+    answer = _two_products(ask, json.dumps({"judgement": "童装更强。", "points": [
+        {"claim": "童装208号 176 件", "evidence": [{"query": 2, "rows": [0]}]},
+        {"claim": "母婴145号 63 件", "evidence": [{"query": 1, "rows": [0]}]}]}, ensure_ascii=False))
+    assert [item.index for item in answer.results] == [1, 2]
+    assert answer.table is not None and answer.table.rows == [["母婴热销款145号", 63]]

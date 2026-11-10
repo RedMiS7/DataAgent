@@ -15,6 +15,7 @@ from agentscope.tool import FunctionTool, Toolkit
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
+from ..api.schemas import IntentInfo
 from ..config import Settings
 from ..db.engine import app_connection, business_connection
 from ..nl2sql.executor import ExecutionResult, SQLExecutionError, execute_sql
@@ -40,6 +41,7 @@ from ..semantic.schema_context import (
 )
 from ..semantic.table_search import TableSearcher, render_search
 from .session import PREVIEW_ROWS, QueryRecord
+from .sql_intent import SQLChecks, block_message, check_sql, warning_text
 from .trace import CallTrace, timed
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,14 @@ class AgentRunContext:
     # SQL may only read visible tables; set when the model searches tables itself.
     require_visible: bool = False
     searches: int = 0
+    # How the question was understood; None when the intent could not be read.
+    intent: IntentInfo | None = None
+    # What each SQL is checked against before it runs (plan 2.3); None skips the checks.
+    sql_checks: SQLChecks | None = None
+    # Each kind of mismatch turns a SQL back once; after that it runs with a warning, so
+    # a wrong check cannot keep a question from being answered.
+    sql_blocked: set[str] = field(default_factory=set)
+    sql_warnings: list[str] = field(default_factory=list)
 
 
 def _json(data: Any) -> str:
@@ -391,6 +401,32 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
                                     "message": f"{prefix}SQL 用了没检索过的表：{'、'.join(unseen)}"})
             return _with_limit(message, failures_in_row, failure_limit)
 
+        # The model's own SQL: the safety check may have added a LIMIT it did not write.
+        mismatches = (check_sql(sql, context.sql_checks, context.settings.mysql_business_db,
+                                context.settings.sql_dialect)
+                      if context.sql_checks is not None else [])
+        new = [item for item in mismatches if item.kind not in context.sql_blocked]
+        if new:
+            context.sql_blocked.update(item.kind for item in new)
+            message = block_message(new)
+            context.errors.append(message)
+            context.failed_sql = sql
+            failures_in_row += 1
+            logger.warning("[%s] 查询 %d 和问题的理解不一致 kinds=%s sql=%s", context.log_tag,
+                           attempt, ",".join(item.kind for item in new), _one_line(sql))
+            context.query_records.append(QueryRecord(sql=sql, status="blocked",
+                                                     purpose=purpose, error=message))
+            context.emit("status", {"step": "retrying",
+                                    "message": f"{prefix}SQL 和问题的理解不一致：{new[0].message}"})
+            return _with_limit(message, failures_in_row, failure_limit)
+        for item in mismatches:
+            # The time is warned about when the answer is built, from the SQL it shows.
+            text = warning_text(item)
+            if item.kind != "time" and text not in context.sql_warnings:
+                logger.info("[%s] 查询 %d 第二次不一致，放行 kind=%s", context.log_tag, attempt,
+                            item.kind)
+                context.sql_warnings.append(text)
+
         if not analysis:
             context.emit("status", {"step": "executing", "message": "正在执行查询"})
         context.reserved += 1
@@ -443,7 +479,8 @@ def _make_run_sql(context: AgentRunContext, step_id: int | None = None,
                 "step": f"query_{index}",
                 "message": f"{prefix}查询 {index}：{purpose or '查询数据'}，返回 {len(execution.rows)} 行",
             })
-            preview["query_index"] = index
+        # The conclusion cites the query by this number and its rows from 0.
+        preview["query_index"] = index
         return _json(preview)
 
     return run_sql

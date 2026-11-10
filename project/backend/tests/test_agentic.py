@@ -262,8 +262,7 @@ def agentic(monkeypatch: pytest.MonkeyPatch):
 
     def run(script: list[list[Any]], schema_mode: str = "agentic",
             history: list[HistoryMessage] | None = None) -> tuple[Any, list[dict]]:
-        models = iter([ScriptedChatModel(script), ScriptedChatModel([[]])])
-        monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: next(models))
+        monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: ScriptedChatModel(script))
         events: list[dict] = []
         settings = Settings(_env_file=None, as_of_date=AS_OF, schema_mode=schema_mode)
         answer = AskPipeline(settings, _Retriever()).ask(  # type: ignore[arg-type]

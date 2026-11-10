@@ -47,8 +47,48 @@ def print_metrics(metrics: dict[str, Any]) -> None:
         hints = "，".join(f"{name} {count}" for name, count in
                          sorted(metrics["failure_hints"].items(), key=lambda item: -item[1]))
         print(f"  失败现象：{hints}")
+    if metrics.get("intent"):
+        print_intent(metrics["intent"])
+    if metrics.get("conclusion", {}).get("answers"):
+        print_conclusion(metrics["conclusion"])
     if metrics.get("backend"):
         print_backend(metrics["backend"])
+
+
+INTENT_LABELS = {"route": "回答方式", "metrics": "指标", "time_range": "时间",
+                 "comparison": "对比期", "dimensions": "维度", "filters": "筛选",
+                 "result_shape": "结果形式"}
+
+
+def _share(part: int, total: int) -> str:
+    return f"{part}/{total}（{part / total * 100:.0f}%）" if total else "0/0"
+
+
+def print_conclusion(figures: dict[str, int]) -> None:
+    """Conclusions with evidence (plan 2.4)."""
+    print(f"  结论：依据都对 {_share(figures['ok'], figures['answers'])}，"
+          f"重写后仍有不对的依据 {figures['unchecked']} 题，没读出结构、展示原文 {figures['raw']} 题；"
+          f"重写过 {figures['rewritten']} 题；要点 {figures['points']} 条，"
+          f"有依据 {figures['points_with_evidence']} 条")
+
+
+def print_intent(intent: dict[str, Any]) -> None:
+    """How questions were understood, and asking back (plan 2.2)."""
+    if not intent["read"] and not intent["clarify_expected"]:
+        return
+    print(f"  意图：识别 {intent['read']} 题，没拿到可用的意图 {intent['no_intent']} 题，"
+          f"第一次读不出、重试 {intent['retried']} 题；反问 {intent['clarified']} 题")
+    if intent["fields"]:
+        parts = "，".join(f"{INTENT_LABELS.get(name, name)} "
+                         f"{_share(item['right'], item['total'])}"
+                         for name, item in intent["fields"].items())
+        print(f"    字段准确率：{parts}")
+    print(f"    漏问率（该反问的题没反问）：{_share(intent['clarify_missed'], intent['clarify_expected'])}；"
+          f"多问率（不该反问的题反问了）："
+          f"{_share(intent['clarify_extra'], intent['clarify_unexpected_total'])}")
+    print(f"    SQL 和意图对照：拦下 {intent.get('sql_blocked', 0)} 次"
+          f"（{intent.get('sql_blocked_cases', 0)} 题），"
+          f"第二次不一致放行并警告 {intent.get('sql_warned', 0)} 次")
 
 
 SPLIT_LABELS = {"model": "模型", "sql": "SQL", "embedding": "embedding", "rerank": "重排",

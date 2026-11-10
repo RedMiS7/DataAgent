@@ -11,10 +11,11 @@ from typing import Any
 import pytest
 from agentscope.message import TextBlock, ToolCallBlock
 from app.agent import pipeline, router, session, tools
+from app.agent.intent import parse_intent
 from app.agent.pipeline import NEED_DATA, AskPipeline, is_followup, resolve_time_range
-from app.agent.router import build_router_input, parse_route
+from app.agent.router import build_router_input
 from app.agent.scope_model import ScriptedChatModel
-from app.api.schemas import HistoryMessage, HistoryQuery
+from app.api.schemas import HistoryMessage
 from app.config import Settings
 from app.nl2sql.executor import ExecutionResult
 from app.semantic.models import Metric, MetricHit, RetrievalBundle
@@ -73,9 +74,11 @@ def ask(monkeypatch: pytest.MonkeyPatch):
     def run(question: str, *, agent: list[Any], router_reply: list[Any] | None = None,
             direct: list[Any] | None = None, mode: str = "auto",
             history: list[HistoryMessage] | None = None):
-        models = iter([ScriptedChatModel(agent), ScriptedChatModel([router_reply or []]),
-                       ScriptedChatModel(direct or [text("")])])
+        # The first chat model built goes to the agent, the second to the direct answer.
+        models = iter([ScriptedChatModel(agent), ScriptedChatModel(direct or [text("")])])
         monkeypatch.setattr(pipeline, "build_chat_model", lambda settings: next(models))
+        monkeypatch.setattr(pipeline, "build_router_model",
+                            lambda settings: ScriptedChatModel([router_reply or []]))
         settings = Settings(_env_file=None, as_of_date=AS_OF)
         answer = AskPipeline(settings, OneMetricRetriever()).ask(  # type: ignore[arg-type]
             question, "test", None, mode, history or [])  # type: ignore[arg-type]
@@ -87,7 +90,8 @@ def ask(monkeypatch: pytest.MonkeyPatch):
 # Routing
 
 def test_the_router_accepts_direct() -> None:
-    assert parse_route('{"route": "direct", "reason": "解释口径"}') == ("direct", "解释口径")
+    intent = parse_intent('{"route": "direct", "reason": "解释口径"}')
+    assert (intent.route, intent.reason) == ("direct", "解释口径")
     assert "direct" in router.ROUTER_PROMPT
 
 
@@ -122,22 +126,14 @@ def test_a_rewrite_may_repeat_the_figures_already_given(ask) -> None:
     assert answer.warnings == []
 
 
-def test_a_figure_from_nowhere_is_flagged(ask) -> None:
+def test_a_direct_answer_is_shown_as_written(ask) -> None:
+    # 35.6 万 is in no earlier reply; figures are no longer checked by code.
+    reply = "上个月 GMV 为 412.3 万元，比上上个月多 35.6 万元。"
     answer, _ = ask("把这个结论写成一段话发给老板", agent=[text("不应该用到")],
-                    router_reply=route("direct"),
-                    direct=[text("上个月 GMV 为 412.3 万元，比上上个月多 35.6 万元。")],
-                    history=GMV_HISTORY)
+                    router_reply=route("direct"), direct=[text(reply)], history=GMV_HISTORY)
     assert answer.status == "text"
-    assert answer.warnings == ["这些数字没有查询依据：35.6万"]
-
-
-def test_a_number_only_in_earlier_sql_is_no_source(ask) -> None:
-    history = [GMV_HISTORY[0], GMV_HISTORY[1].model_copy(update={"queries": [HistoryQuery(
-        purpose="上个月GMV", sql="SELECT SUM(x) FROM safe.orders LIMIT 500")]})]
-    answer, _ = ask("把这个结论写成一段话发给老板", agent=[text("不应该用到")],
-                    router_reply=route("direct"),
-                    direct=[text("上个月 GMV 为 412.3 万元，共 500 个商品。")], history=history)
-    assert answer.warnings == ["这些数字没有查询依据：500"]
+    assert answer.summary == reply
+    assert answer.warnings == []
 
 
 def test_a_direct_answer_that_needs_data_falls_back_to_a_query(ask) -> None:

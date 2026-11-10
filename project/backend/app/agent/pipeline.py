@@ -11,6 +11,7 @@ from typing import Any
 
 from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.message import Msg, TextBlock
+from agentscope.model import ChatModelBase
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..api.schemas import (
@@ -18,17 +19,21 @@ from ..api.schemas import (
     AnswerStatus,
     AskMode,
     CallUsage,
+    Clarify,
+    Conclusion,
     Failure,
     HistoryMessage,
+    IntentInfo,
     MetricNote,
     PlanStepInfo,
     QueryResult,
     RequestMode,
+    RouteChoice,
     RouteInfo,
     TableBlock,
 )
 from ..config import Settings
-from ..db.engine import app_connection
+from ..db.engine import app_connection, business_connection
 from ..nl2sql.executor import ExecutionResult
 from ..nl2sql.time_parser import (
     TimeRange,
@@ -37,7 +42,8 @@ from ..nl2sql.time_parser import (
     previous_period,
 )
 from ..rerank import build_reranker
-from ..semantic.models import RetrievalBundle
+from ..semantic import repository
+from ..semantic.models import RetrievalBundle, SchemaItem
 from ..semantic.retriever import SemanticRetriever
 from ..semantic.schema_context import SchemaContext
 from ..semantic.table_search import TableSearcher
@@ -51,10 +57,20 @@ from .answer import (
     queries_note,
     recommend_chart,
     select_execution,
+    strip_citations,
     template_summary,
     time_range_warning,
-    unverified_numbers,
-    verify_summary,
+)
+from .conclusion import (
+    ANALYSIS_FORMAT,
+    QUERY_FORMAT,
+    ConclusionMode,
+    archived,
+    cited_queries,
+    read_conclusion,
+    render_summary,
+    rewrite_input,
+    rewrite_prompt,
 )
 from .failure import (
     exception_failure,
@@ -64,10 +80,25 @@ from .failure import (
     step_failure,
     timeout_failure,
 )
+from .intent import (
+    MAX_CLARIFY_ROUNDS,
+    Catalog,
+    Intent,
+    agent_note,
+    build_clarify,
+    check_intent,
+    clarify_rounds,
+    intent_info,
+    pending_question,
+    previous_intent,
+    resolve_time,
+    settle,
+)
 from .planner import STEP_ANSWER_RULE, AnalysisTask, PlanStep, run_analysis
-from .router import route_question
+from .router import catalog_note, question_note, route_question
 from .scope_model import build_chat_model
 from .session import LogSource, QueryRecord
+from .sql_intent import build_checks
 from .tools import (
     ANALYSIS_MAX_QUERIES,
     AgentRunContext,
@@ -92,7 +123,7 @@ REFUSAL_MESSAGE = (
     "可以改成按地区、类别等汇总的统计问题，不涉及具体的个人。"
 )
 
-QUERY_ANSWER_RULE = "7. 最终只用一句中文回答，不超过 60 个字符，并且只能使用查询结果中出现的数字。"
+QUERY_ANSWER_RULE = f"7. {QUERY_FORMAT}"
 
 ANALYSIS_ANSWER_RULE = f"""7. 这是分析请求，要给出判断，不要只报数字。
    查询方式：
@@ -101,12 +132,7 @@ ANALYSIS_ANSWER_RULE = f"""7. 这是分析请求，要给出判断，不要只�
    - 比例、增长率、差值都写进 SQL 算出来，不要自己心算。百分比在 SQL 里乘以 100 并保留 1 位小数。
    - 所有查询的列都用中文别名，例如 数量、金额、占比。
    - 最多 {ANALYSIS_MAX_QUERIES} 条查询，数据够下结论就停。
-   回答格式：
-   - 第一行是一句判断，不超过 40 个字。
-   - 然后写 2 到 4 条要点，每条以“- ”开头，写清数字和含义，末尾标注来源，例如 [查询2]。
-   - 最后一条以“- 建议：”开头，给出可以执行的动作。
-   - 数字只能来自查询结果。数据看不出原因时要明说，不要猜。
-   - 总长不超过 300 字，不要用 Markdown 加粗。"""
+   {ANALYSIS_FORMAT.replace(chr(10), chr(10) + "   ")}"""
 
 # Rules 2 and 11 depend on how the model gets the tables: all of them in the prompt, or
 # a catalog and search_semantic.
@@ -157,6 +183,7 @@ def agentic_rules(prompt: str) -> str:
 
 
 ANALYSIS_MAX_ITERS = 14
+REWRITE_TIMEOUT_SECONDS = 45.0
 
 # The direct answer says this when the question needs data after all.
 NEED_DATA = "【需要查数】"
@@ -222,6 +249,57 @@ def resolve_time_range(question: str, history: list[tuple[str, str]], as_of: dat
     return current
 
 
+def build_router_model(settings: Settings) -> ChatModelBase | None:
+    """The model that reads the intent. A model's HTTP connections belong to the event
+    loop of its first call, and each asyncio.run starts a new loop, so the router needs a
+    model of its own."""
+    return build_chat_model(settings)
+
+
+def build_rewrite_model(settings: Settings) -> ChatModelBase | None:
+    """The model that rewrites a conclusion whose evidence is wrong. It runs after the
+    answer's event loop has closed, so it needs a model of its own."""
+    return build_chat_model(settings)
+
+
+def load_catalog(settings: Settings, conn) -> Catalog:
+    """The metrics and columns of the semantic layer, and a reader for the values of the
+    columns users name values of. Empty when the semantic layer cannot be read."""
+    try:
+        metrics = repository.fetch_metrics(conn)
+        items = repository.fetch_schema_items(conn)
+    except SQLAlchemyError as exc:
+        logger.warning("读取语义层失败，这次不检查意图里的指标和字段 error=%s", exc)
+        return Catalog()
+    values: dict[tuple[str, str], list[str] | None] = {}
+
+    def entity_values(item: SchemaItem) -> list[str] | None:
+        key = (item.table_name, item.column_name)
+        if key not in values:
+            try:
+                with business_connection(settings) as business:
+                    rows = repository.fetch_entity_values(business, [item])
+            except SQLAlchemyError as exc:
+                logger.warning("读取 %s.%s 的取值失败 error=%s", *key, exc)
+                rows = None
+            # At the limit, a value missing from the list may still exist.
+            values[key] = (None if rows is None or len(rows) >= repository.ENTITY_VALUE_LIMIT
+                           else [row["value"] for row in rows])
+        return values[key]
+
+    return Catalog(metrics=metrics, schema_items=items, entity_values=entity_values)
+
+
+def _archived_intent(intent: IntentInfo | None, clarify: Clarify | None) -> dict[str, Any] | None:
+    """The intent as query_logs keeps it, with the question asked back, if any."""
+    if intent is None and clarify is None:
+        return None
+    archived = intent.model_dump() if intent else {}
+    if clarify is not None:
+        archived["clarify"] = clarify.model_dump()
+    return archived
+
+
 def _describe_range(value: TimeRange) -> str:
     return f"{value.label}（{value.start} 至 {value.end}，不含右端）"
 
@@ -281,19 +359,6 @@ def history_pairs(history: list[HistoryMessage]) -> list[tuple[str, str]]:
     return pairs
 
 
-def _uncited_sources(summary: str, question: str, executions: list[ExecutionResult],
-                     cited: list[int]) -> list[int]:
-    """Uncited queries that hold figures the cited ones do not."""
-    orphans = unverified_numbers(summary, question,
-                                 [executions[index - 1].rows for index in cited])
-    if not orphans:
-        return []
-    text = " ".join(orphans)
-    return [index for index, execution in enumerate(executions, start=1)
-            if index not in cited
-            and unverified_numbers(text, question, [execution.rows]) != orphans]
-
-
 def _query_results(context: AgentRunContext, shown: list[int]) -> list[QueryResult]:
     """The queries numbered in ``shown``, as the answer card lists them."""
     results: list[QueryResult] = []
@@ -351,10 +416,15 @@ class AskPipeline:
             logger.info("[%s] 历史里有 %d 个问题没有回答，已补上占位回答", tag,
                         len(client_history) - len(sent))
 
+        as_of = self.settings.as_of_date
+        # Set when the last reply asked back: this question answers it.
+        asked = pending_question(client_history)
         with app_connection(self.settings) as conn:
             emit("status", {"step": "understanding", "message": "正在解析时间并理解问题"})
-            rewritten = build_retrieval_query(question, turns)
-            time_range = resolve_time_range(question, turns, self.settings.as_of_date)
+            rewritten = f"{asked} {question}" if asked else build_retrieval_query(question, turns)
+            time_range = resolve_time_range(question, turns, as_of)
+            if asked and time_range.is_default:
+                time_range = resolve_time_range(asked, turns, as_of)
             emit("status", {
                 "step": "time_parsed",
                 "message": f"时间范围：{_describe_range(time_range)}" + (
@@ -385,25 +455,67 @@ class AskPipeline:
                                       "", message, trace,
                                       failure=not_configured_failure(message))
 
+            # The intent is read in every mode; a mode the user picked is kept.
+            emit("status", {"step": "routing", "message": "正在理解问题"})
+            catalog = load_catalog(self.settings, conn)
+            router_model = build_router_model(self.settings) or model
+            decision = route_question(
+                router_model, question, client_history, tag, trace=trace,
+                knowledge=catalog_note(catalog.metrics, catalog.schema_items),
+                details=question_note(bundle, previous_intent(client_history),
+                                      as_of.isoformat()),
+                fallback="query" if mode == "auto" else mode)
             route: RouteInfo | None = None
+            chosen: RouteChoice = decision.route if mode == "auto" else mode
             if mode == "auto":
-                emit("status", {"step": "routing", "message": "正在判断问题类型"})
-                # A model's HTTP connections belong to the event loop of its first call,
-                # and each asyncio.run starts a new loop, so the router needs its own model.
-                router_model = build_chat_model(self.settings) or model
-                decision = route_question(router_model, question, client_history, tag,
-                                          trace=trace)
                 route = RouteInfo(requested="auto", chosen=decision.route,
                                   reason=decision.reason, source=decision.source)
                 label = ROUTE_LABELS[decision.route]
                 emit("status", {"step": "routed",
                                 "message": f"判断为{label}：{decision.reason}".rstrip("："),
                                 "route": route.model_dump()})
-                mode = "query" if route.chosen == "direct" else route.chosen
+            mode = "query" if chosen == "direct" else chosen
+
+            intent: IntentInfo | None = None
+            # The checked intent, which the SQL is checked against.
+            understood: Intent | None = None
+            if decision.intent is not None and chosen == "direct":
+                # A direct answer needs nothing checked; the structure still goes back.
+                intent = IntentInfo(data=decision.intent.model_dump(exclude_defaults=True))
+            elif decision.intent is not None:
+                checked = check_intent(decision.intent, catalog, as_of, chosen)
+                rounds = clarify_rounds(client_history)
+                if checked.issues and rounds < MAX_CLARIFY_ROUNDS:
+                    clarify = build_clarify(checked.issues, rounds)
+                    time_range, notes = resolve_time(checked.intent, time_range, as_of)
+                    logger.info("[%s] 反问（第 %d 轮）kinds=%s question=%s", tag, clarify.round,
+                                ",".join(issue.kind for issue in checked.issues),
+                                clarify.question)
+                    return self._finalize(
+                        conn, emit, session_id, question, rewritten, "", None, time_range,
+                        bundle, 0, "clarify", clarify.question, "", trace, "template",
+                        mode=mode, route=route, intent=intent_info(checked, time_range, notes),
+                        clarify=clarify)
+                if checked.issues:
+                    logger.info("[%s] 已反问 %d 轮，按默认值处理 kinds=%s", tag, rounds,
+                                ",".join(issue.kind for issue in checked.issues))
+                    checked = settle(checked)
+                time_range, notes = resolve_time(checked.intent, time_range, as_of)
+                intent = intent_info(checked, time_range, notes)
+                understood = checked.intent
+                emit("status", {"step": "understood",
+                                "message": f"我理解为：{intent.text}" if intent.text
+                                else "已理解问题",
+                                "intent": intent.model_dump(),
+                                "time_range": time_range.as_dict()})
 
             context = AgentRunContext(settings=self.settings, retriever=self.retriever,
                                       emit=emit, bundle=bundle, mode=mode, log_tag=tag,
-                                      trace=trace)
+                                      trace=trace, intent=intent,
+                                      sql_checks=build_checks(
+                                          understood, time_range, catalog.metrics,
+                                          catalog.schema_items, self.settings.mysql_business_db,
+                                          mode))
             if schema is not None and schema.agentic:
                 # Built per question: the rerank key may be saved after start-up.
                 context.searcher = TableSearcher(self.settings, self.retriever,
@@ -427,8 +539,8 @@ class AskPipeline:
                                          exception_failure(exc, False))
                 if text.strip() and NEED_DATA not in text:
                     return self._text_answer(conn, emit, session_id, question, rewritten,
-                                             time_range, bundle, client_history, text, trace, mode,
-                                             route, context.query_records)
+                                             time_range, bundle, text, trace, mode,
+                                             route, context.query_records, intent)
                 logger.info("[%s] 直接回答时发现需要查数，改用查询模式 reply=%r", tag, text)
                 route = route.model_copy(update={
                     "chosen": "query", "reason": f"{route.reason}；回答时发现需要查数".lstrip("；")})
@@ -451,9 +563,11 @@ class AskPipeline:
                 injection_config=InjectionConfig(inject_runtime_state=False),
             )
 
+            ask_text = f"{asked}（补充：{question}）" if asked else question
+            note = agent_note(intent) if intent else ""
             inputs = _history_messages(turns)
             inputs.append(Msg(name="user", content=[TextBlock(text=self._user_content(
-                question, time_range))], role="user"))
+                ask_text, time_range, note))], role="user"))
 
             steps: list[PlanStep] | None = None
             timeout = (self.settings.analysis_timeout_seconds if mode == "analysis"
@@ -461,8 +575,8 @@ class AskPipeline:
             try:
                 if mode == "analysis":
                     # One loop for the whole analysis: the model's connections belong to it.
-                    task = self._analysis_task(question, client_history, bundle, time_range,
-                                               query_iters, schema=schema)
+                    task = self._analysis_task(ask_text, client_history, bundle, time_range,
+                                               query_iters, schema=schema, note=note)
                     outcome = asyncio.run(asyncio.wait_for(
                         run_analysis(model, context, task, lambda: _reply_text(agent, inputs)),
                         timeout))
@@ -485,15 +599,17 @@ class AskPipeline:
                 return self._finalize(conn, emit, session_id, question, rewritten, "",
                                       None, time_range, bundle, context.attempts, "refused",
                                       context.declined, "", trace, mode=mode,
-                                      route=route, queries=context.query_records)
+                                      route=route, queries=context.query_records,
+                                      intent=intent)
 
-            execution = select_execution(context.executions, text)
+            _, cited = normalize_citations(text, len(context.executions))
+            execution = select_execution(context.executions, cited)
             if execution is None and not context.errors and text.strip() \
                     and NEED_DATA not in text:
                 # The model judged that no data was needed, e.g. for a metric definition.
                 return self._text_answer(conn, emit, session_id, question, rewritten,
-                                         time_range, bundle, client_history, text, trace, mode,
-                                         route, context.query_records)
+                                         time_range, bundle, text, trace, mode,
+                                         route, context.query_records, intent)
             if execution is None:
                 failure = (sql_failure(context.attempts, context.errors[-1]) if context.errors
                            else no_answer_failure())
@@ -505,12 +621,23 @@ class AskPipeline:
                                              time_range, bundle, context, text, route,
                                              steps)
 
+            conclusion, text = self._conclude(text, context, "query", ask_text)
+            if conclusion is not None:
+                if conclusion.checked:
+                    execution = select_execution(context.executions,
+                                                 cited_queries(conclusion)) or execution
+                written = render_summary(conclusion, "query")
+            else:
+                # One table is shown, so the citation marks have nothing to point at.
+                written = strip_citations(normalize_citations(text, len(context.executions))[0])
             status = "ok" if execution.rows else "empty"
-            summary, summary_source = self._summarize(text, execution, emit, tag)
+            summary, summary_source = self._summarize(written.strip(), execution)
             return self._finalize(conn, emit, session_id, question, rewritten,
                                   execution.sql, execution, time_range, bundle,
                                   context.attempts, status, summary, "", trace,
-                                  summary_source, route=route, queries=context.query_records)
+                                  summary_source, route=route, queries=context.query_records,
+                                  intent=intent, warnings=context.sql_warnings,
+                                  conclusion=conclusion)
 
     def _refusal(self, question: str) -> str:
         if any(term in question for term in SENSITIVE_TERMS):
@@ -585,8 +712,8 @@ class AskPipeline:
             + "需要查数时调用 run_sql，不需要查数时直接回答，不该执行时调用 decline_request。"
         )
 
-    def _user_content(self, question: str, time_range: TimeRange) -> str:
-        return f"{question}\n\n{self._time_note(time_range)}"
+    def _user_content(self, question: str, time_range: TimeRange, note: str = "") -> str:
+        return f"{question}\n\n{self._time_note(time_range)}" + (f"\n{note}" if note else "")
 
     def _answer_directly(self, question: str, turns: list[tuple[str, str]],
                          bundle: RetrievalBundle, time_range: TimeRange,
@@ -614,26 +741,18 @@ class AskPipeline:
 
     def _text_answer(self, conn, emit: EventHandler, session_id: str, question: str,
                      rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
-                     history: list[HistoryMessage], text: str, trace: CallTrace,
-                     mode: AskMode, route: RouteInfo | None,
-                     queries: list[QueryRecord] | None = None) -> AnswerPayload:
-        """An answer without SQL. Its figures must come from the conversation or the
-        knowledge base; others are flagged. The SQL of earlier replies does not count:
-        a LIMIT or a date in it is no source for a figure."""
-        sources = [history_content(item) for item in history if item.role == "assistant"]
-        sources.append(bundle.to_prompt_context())
-        missing = unverified_numbers(text, question, [[[source]] for source in sources])
-        warnings = [f"这些数字没有查询依据：{'、'.join(missing)}"] if missing else []
-        if missing:
-            logger.warning("[%s] 直接回答里有没有依据的数字 numbers=%s",
-                           session.log_tag(session_id), missing)
+                     text: str, trace: CallTrace, mode: AskMode, route: RouteInfo | None,
+                     queries: list[QueryRecord] | None = None,
+                     intent: IntentInfo | None = None) -> AnswerPayload:
+        """An answer without SQL, shown as the model wrote it."""
         return self._finalize(conn, emit, session_id, question, rewritten, "", None,
                               time_range, bundle, 0, "text", text.strip(), "", trace, "model",
-                              mode=mode, warnings=warnings, route=route, queries=queries)
+                              mode=mode, route=route, queries=queries, intent=intent)
 
     def _analysis_task(self, question: str, history: list[HistoryMessage],
                        bundle: RetrievalBundle, time_range: TimeRange,
-                       step_iters: int, schema: SchemaContext | None = None) -> AnalysisTask:
+                       step_iters: int, schema: SchemaContext | None = None,
+                       note: str = "") -> AnalysisTask:
         prompt = self._system_prompt(bundle, time_range, "analysis", schema=schema)
         return AnalysisTask(
             question=question,
@@ -641,20 +760,65 @@ class AskPipeline:
             period=self._period(time_range, "analysis"),
             knowledge=bundle.to_prompt_context(),
             step_prompt=prompt.replace(ANALYSIS_ANSWER_RULE, STEP_ANSWER_RULE),
-            time_note=self._time_note(time_range),
+            time_note=self._time_note(time_range) + (f"\n{note}" if note else ""),
             step_max_iters=step_iters,
         )
 
-    def _summarize(self, text: str, result: ExecutionResult, emit: EventHandler,
-                   tag: str) -> tuple[str, str]:
-        fallback = template_summary(result.columns, result.rows)
-        if text and verify_summary(text, result.rows):
-            return text, "model"
+    def _summarize(self, text: str, result: ExecutionResult) -> tuple[str, str]:
+        """The model's conclusion as it wrote it; the template only when it wrote none."""
         if text:
-            logger.warning("[%s] 结论校验未通过，改用模板 summary=%r", tag, text)
-            emit("status", {"step": "summary_fallback",
-                            "message": "结论中的数字与查询结果不一致，已改用模板结论"})
-        return fallback, "template"
+            return text, "model"
+        return template_summary(result.columns, result.rows), "template"
+
+    def _conclude(self, text: str, context: AgentRunContext, mode: ConclusionMode,
+                  question: str) -> tuple[Conclusion | None, str]:
+        """Read the model's conclusion; when its format or evidence is wrong, ask for one
+        rewrite. Returns the structure, if any could be read, and the text it came from.
+
+        A structure whose evidence is still wrong comes back with ``checked`` False and
+        the wrong evidence left out; text that is no JSON comes back as it is.
+        """
+        if not text.strip():
+            return None, text
+        reading = read_conclusion(text, context.executions, mode)
+        if reading.ok:
+            return reading.conclusion, text
+        tag = context.log_tag
+        logger.warning("[%s] 结论有问题，重写一次 errors=%s", tag, reading.errors)
+        context.emit("status", {"step": "rewriting", "message": "结论的依据有问题，正在重写"})
+        retry = self._rewrite(text, reading.errors, context, mode, question)
+        if retry:
+            second = read_conclusion(retry, context.executions, mode)
+            if second.ok:
+                logger.info("[%s] 结论重写后通过", tag)
+                return second.conclusion, retry
+            # The rewrite replaces the original only when it has a structure; text that
+            # never reads as JSON is shown as the model first wrote it.
+            if second.conclusion is not None:
+                reading, text = second, retry
+        logger.warning("[%s] 结论重写后仍有问题，%s errors=%s", tag,
+                       "去掉不对的依据" if reading.conclusion else "展示原文", reading.errors)
+        return reading.conclusion, text
+
+    def _rewrite(self, text: str, errors: list[str], context: AgentRunContext,
+                 mode: ConclusionMode, question: str) -> str:
+        model = build_rewrite_model(self.settings)
+        if model is None:
+            return ""
+        agent = Agent(name="rewrite", system_prompt=rewrite_prompt(mode), model=model,
+                      middlewares=context.trace.middlewares(),
+                      react_config=ReActConfig(interruption_raise_cancelled_error=True),
+                      injection_config=InjectionConfig(inject_runtime_state=False))
+        content = rewrite_input(question, text, errors, context.executions, context.purposes)
+        try:
+            return asyncio.run(asyncio.wait_for(_reply_text(agent, [
+                Msg(name="user", content=[TextBlock(text=content)], role="user")]),
+                REWRITE_TIMEOUT_SECONDS))
+        except TimeoutError:
+            logger.warning("[%s] 结论重写超时（%.0f 秒）", context.log_tag, REWRITE_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception("[%s] 结论重写失败", context.log_tag)
+        return ""
 
     def _finish_analysis(self, conn, emit: EventHandler, session_id: str, question: str,
                          rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
@@ -662,28 +826,28 @@ class AskPipeline:
                          route: RouteInfo | None = None,
                          steps: list[PlanStep] | None = None) -> AnswerPayload:
         executions = context.executions
-        summary, cited = normalize_citations(text, len(executions))
+        conclusion, text = self._conclude(text, context, "analysis", question)
+        if conclusion is not None:
+            summary = render_summary(conclusion, "analysis")
+            # Evidence that failed its check cannot say what the conclusion rests on.
+            cited = cited_queries(conclusion) if conclusion.checked else []
+        else:
+            summary, _ = normalize_citations(text, len(executions))
+            cited = []
         # Show what the conclusion rests on; the rest are the model's dead ends.
-        shown = sorted([*cited, *_uncited_sources(summary, question, executions, cited)]) \
-            if cited else list(range(1, len(executions) + 1))
+        shown = cited or list(range(1, len(executions) + 1))
         used = [executions[index - 1] for index in shown]
         primary = next((execution for execution in used if execution.rows), used[0])
         results = _query_results(context, shown)
         plan = [PlanStepInfo(**step.view()) for step in steps or []]
 
-        warnings: list[str] = []
+        warnings: list[str] = list(context.sql_warnings)
         if context.reserved >= ANALYSIS_MAX_QUERIES:
             warnings.append(f"查询次数已用完（{ANALYSIS_MAX_QUERIES} 条），结论只基于已经查到的数据。")
         failed = [step.goal for step in steps or [] if step.status == "failed"]
         failure = step_failure(failed) if failed else None
         source = "model"
-        if summary:
-            # Every query of this answer counts: a figure is often quoted without its citation.
-            missing = unverified_numbers(summary, question, [item.rows for item in executions])
-            if missing:
-                logger.warning("[%s] 结论有未核对的数字 numbers=%s", context.log_tag, missing)
-                warnings.append(f"这些数字未能在查询结果中核对：{'、'.join(missing)}")
-        else:
+        if not summary:
             summary = template_summary(primary.columns, primary.rows)
             source = "template"
 
@@ -693,7 +857,8 @@ class AskPipeline:
                               failure.message if failure else "", context.trace,
                               source, mode="analysis", results=results, warnings=warnings,
                               route=route, plan=plan, failure=failure,
-                              queries=context.query_records)
+                              queries=context.query_records, intent=context.intent,
+                              conclusion=conclusion)
 
     def _degrade(self, conn, emit: EventHandler, session_id: str, question: str,
                  rewritten: str, time_range: TimeRange, bundle: RetrievalBundle,
@@ -711,20 +876,22 @@ class AskPipeline:
                                   context.failed_sql, None, time_range, bundle,
                                   context.attempts, "error", "", failure.message,
                                   context.trace, mode=mode, route=route, plan=plan,
-                                  failure=failure, queries=context.query_records)
+                                  failure=failure, queries=context.query_records,
+                                  intent=context.intent)
 
         if mode == "analysis":
             primary = next((execution for execution in executions if execution.rows),
                            executions[0])
             results = _query_results(context, list(range(1, len(executions) + 1)))
         else:
-            primary = select_execution(executions, "") or executions[0]
+            primary = select_execution(executions) or executions[0]
             results = []
         return self._finalize(conn, emit, session_id, question, rewritten, primary.sql, primary,
                               time_range, bundle, context.attempts, "partial",
                               template_summary(primary.columns, primary.rows), failure.message,
                               context.trace, mode=mode, results=results, route=route,
-                              plan=plan, failure=failure, queries=context.query_records)
+                              plan=plan, failure=failure, queries=context.query_records,
+                              intent=context.intent, warnings=context.sql_warnings)
 
     def _finalize(self, conn, emit: EventHandler, session_id: str, question: str,
                   rewritten: str, sql_text: str, result: ExecutionResult | None,
@@ -736,7 +903,10 @@ class AskPipeline:
                   route: RouteInfo | None = None,
                   plan: list[PlanStepInfo] | None = None,
                   failure: Failure | None = None,
-                  queries: list[QueryRecord] | None = None) -> AnswerPayload:
+                  queries: list[QueryRecord] | None = None,
+                  intent: IntentInfo | None = None,
+                  clarify: Clarify | None = None,
+                  conclusion: Conclusion | None = None) -> AnswerPayload:
         duration_ms = int((time.perf_counter() - trace.started) * 1000)
         results = results or []
         warnings = list(warnings or [])
@@ -769,7 +939,8 @@ class AskPipeline:
             len(result.rows) if result else 0, self.settings.llm_model,
             trace.input_tokens, trace.output_tokens, error, summary=summary,
             summary_source=summary_source if summary else "", warnings=warnings,
-            source=self.source)
+            source=self.source, intent=_archived_intent(intent, clarify),
+            conclusion=archived(conclusion))
         session.save_call_traces(conn, log_id, trace.ordered())
         session.save_query_executions(conn, log_id, queries or [])
         log_write_ms = int((time.perf_counter() - writing) * 1000)
@@ -797,6 +968,9 @@ class AskPipeline:
             route=route,
             plan=plan or [],
             usage=CallUsage(**trace.usage(), log_write_ms=log_write_ms),
+            intent=intent,
+            clarify=clarify,
+            conclusion=conclusion,
         )
 
         tag = session.log_tag(session_id)

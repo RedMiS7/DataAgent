@@ -25,7 +25,14 @@ AS_OF = date(2026, 10, 31)
 CALL_IDS = itertools.count(1)
 OVERALL_SQL = "SELECT 1 AS 本期GMV FROM safe.orders WHERE day >= '2026-09-01'"
 CATEGORY_SQL = "SELECT 2 AS 类目 FROM safe.products WHERE day >= '2026-08-01'"
-SUMMARY = "整体不错。\n- GMV 9665990.5 [查询1]\n- 鞋靴销量 200 [查询2]\n- 建议：加投放"
+# Steps finish in any order, so the evidence cites rows, not columns, valid for either query.
+SUMMARY_JSON = json.dumps({
+    "judgement": "整体不错。",
+    "points": [{"claim": "GMV 9665990.5", "evidence": [{"query": 1, "rows": [0]}]},
+               {"claim": "鞋靴销量 200", "evidence": [{"query": 2, "rows": [0]}]}],
+    "advice": "加投放"}, ensure_ascii=False)
+# The text the answer shows, with the citations made from the evidence.
+SUMMARY = "整体不错。\n- GMV 9665990.5[查询1]\n- 鞋靴销量 200[查询2]\n- 建议：加投放"
 
 
 def call(name: str, **arguments: str) -> ToolCallBlock:
@@ -171,7 +178,7 @@ def two_steps(**more: list[list[Any]]) -> dict[str, list[list[Any]]]:
         "step1": overall_step(),
         "step2": category_step(),
         "supplement": [NO_MORE],
-        "summary": [text(SUMMARY)],
+        "summary": [text(SUMMARY_JSON)],
     }
     scripts.update(more)
     return scripts
@@ -229,9 +236,10 @@ def test_digest_lists_each_finished_step_with_its_queries() -> None:
              PlanStep(4, "看物流", status="running")]
     digest = results_digest(context, steps, 5)
     assert digest.split("\n\n") == [
-        "第1步：整体对比（已完成）\n[查询1] 整体\n列：GMV\n100\n本步小结：GMV 100",
-        "第2步：按类目拆（已完成）\n[查询2] 查询数据\n列：类目 | 销量\n类目0 | 0\n类目1 | 1\n"
-        "类目2 | 2\n类目3 | 3\n类目4 | 4\n（共 8 行，只列出前 5 行）\n[查询3] 渠道\n列：渠道\n（没有数据）",
+        "第1步：整体对比（已完成）\n[查询1] 整体\n行号 | GMV\n0 | 100\n本步小结：GMV 100",
+        "第2步：按类目拆（已完成）\n[查询2] 查询数据\n行号 | 类目 | 销量\n0 | 类目0 | 0\n"
+        "1 | 类目1 | 1\n2 | 类目2 | 2\n3 | 类目3 | 3\n4 | 类目4 | 4\n（共 8 行，只列出前 5 行）\n"
+        "[查询3] 渠道\n行号 | 渠道\n（没有数据）",
         "第3步：看广告（失败）",
     ]
 
@@ -274,11 +282,12 @@ def test_every_agent_of_a_plan_is_traced(analyze) -> None:
     answer, saved = analyze(two_steps())
     models = [item for item in saved["traces"] if item.kind == "model"]
     assert sorted({item.agent for item in models}) == [
-        "planner", "step_1", "step_2", "summary", "supplement"]
+        "planner", "router", "step_1", "step_2", "summary", "supplement"]
     assert sorted((item.agent, item.name) for item in saved["traces"] if item.kind == "tool") == [
         ("step_1", "run_sql"), ("step_2", "run_sql")]
     assert answer.usage is not None
-    assert answer.usage.model_calls == len(models) == saved["model"].calls == 7
+    # The router has a model of its own; the rest share the scripted one.
+    assert answer.usage.model_calls == len(models) == saved["model"].calls + 1 == 8
     assert saved["tokens"] == (700, 70)
     assert (answer.usage.input_tokens, answer.usage.output_tokens) == (700, 70)
     starts = [item.started_ms for item in saved["traces"]]
@@ -328,7 +337,7 @@ def test_first_round_steps_see_no_results_and_the_supplement_sees_them(
     assert "本步任务（第 1 步）：对比本期和对比期的 GMV" in inputs[1]
     assert "前面步骤查到的结果：\n（无）" in inputs[1]
     assert "前面步骤查到的结果：\n（无）" in inputs[2]
-    assert "列：本期GMV\n9665990.5\n本步小结：本期 GMV 9665990.5" in inputs[3]
+    assert "行号 | 本期GMV\n0 | 9665990.5\n本步小结：本期 GMV 9665990.5" in inputs[3]
     assert "本步小结：鞋靴销量最高" in inputs[3]
     assert "[系统信息] 时间范围" in inputs[3]
 
@@ -478,16 +487,23 @@ def test_a_slow_supplement_is_skipped(analyze, monkeypatch: pytest.MonkeyPatch,
     assert any("补查判断超时" in item.getMessage() for item in caplog.records)
 
 
-def test_numbers_the_summary_made_up_are_flagged(analyze) -> None:
-    answer, _ = analyze(two_steps(summary=[text("整体增长。\n- GMV 增长 6.3% [查询1]")]))
-    assert answer.warnings == ["这些数字未能在查询结果中核对：6.3%"]
-
-
-def test_a_figure_from_an_uncited_step_is_verified_and_shown(analyze) -> None:
-    # Query numbers depend on which step finishes first; either way one figure is uncited.
-    answer, _ = analyze(two_steps(summary=[text("整体不错。\n- GMV 9665990.5 [查询1]\n- 鞋靴销量 200")]))
+def test_the_summary_is_kept_as_written(analyze) -> None:
+    # 6.3% is in no query result; the conclusion is no longer checked by code.
+    conclusion = "整体增长。\n- GMV 增长 6.3% [查询1]"
+    answer, _ = analyze(two_steps(summary=[text(conclusion)]))
+    assert answer.summary == conclusion
+    assert answer.summary_source == "model"
     assert answer.warnings == []
-    assert sorted(by_step(answer)) == [1, 2]
+
+
+def test_only_the_cited_step_is_shown(analyze) -> None:
+    # Query numbers depend on which step finishes first; either way one query is uncited.
+    only_first = json.dumps({"judgement": "整体不错。", "points": [
+        {"claim": "GMV 9665990.5", "evidence": [{"query": 1, "rows": [0]}]}]}, ensure_ascii=False)
+    answer, _ = analyze(two_steps(summary=[text(only_first)]))
+    assert answer.warnings == []
+    assert [item.index for item in answer.results] == [1]
+    assert answer.conclusion is not None and answer.conclusion.checked
 
 
 # Eval scoring

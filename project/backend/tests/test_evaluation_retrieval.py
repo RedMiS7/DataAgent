@@ -54,8 +54,9 @@ def test_hand_labelled_tables_count_too() -> None:
 
 
 def test_every_question_that_needs_data_has_tables() -> None:
+    # Cases about asking back test no retrieval and have no tables.
     without = [item["id"] for item in QUESTIONS
-               if item["category"] not in ("refusal", "direct")
+               if item["category"] not in ("refusal", "direct", "clarify")
                and not expected_tables(item, "safe")]
     assert without == []
     # Only the known tables are labelled.

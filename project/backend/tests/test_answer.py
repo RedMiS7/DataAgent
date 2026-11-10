@@ -4,7 +4,6 @@ from app.agent.answer import (
     extract_sql,
     recommend_chart,
     template_summary,
-    verify_summary,
 )
 
 
@@ -36,25 +35,6 @@ def test_chart_for_large_category() -> None:
 
 def test_chart_for_single_row() -> None:
     assert recommend_chart(["gmv"], [[100]]).type == "table"
-
-
-def test_summary_with_known_number_passes() -> None:
-    rows = [[100.0, "A"], [50.0, "B"]]
-    assert verify_summary("A 的值为 100。", rows) is True
-
-
-def test_summary_with_unknown_number_fails() -> None:
-    rows = [[100.0, "A"], [50.0, "B"]]
-    assert verify_summary("A 的值为 12345。", rows) is False
-
-
-def test_summary_rejecting_sql_text() -> None:
-    rows = [[1]]
-    assert verify_summary("SELECT 1 AS result。", rows) is False
-
-
-def test_summary_rejecting_empty_text() -> None:
-    assert verify_summary("", [[1]]) is False
 
 
 def test_template_summary_is_stable() -> None:

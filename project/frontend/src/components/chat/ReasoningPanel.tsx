@@ -3,7 +3,7 @@ import { DownOutlined } from "@ant-design/icons";
 import { stepLabel, stepState } from "../../lib/plan";
 import { formatSeconds, type PlanStepView, type Thinking } from "../../lib/reasoning";
 
-const WARN_STEPS = new Set(["retrying", "summary_fallback", "declined", "plan_fallback"]);
+const WARN_STEPS = new Set(["retrying", "declined", "plan_fallback"]);
 
 function PlanList({ plan, running }: { plan: PlanStepView[]; running: boolean }) {
   return (

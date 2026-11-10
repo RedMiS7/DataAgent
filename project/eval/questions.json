@@ -70,7 +70,21 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "最近30天订单数最多的5个省份是哪些？",
-    "expected_sql": "SELECT province, COUNT(*) FROM safe.orders WHERE status <> 'cancelled' AND paid_at >= '2026-10-02' AND paid_at < '2026-11-01' GROUP BY province ORDER BY COUNT(*) DESC LIMIT 5"
+    "expected_sql": "SELECT province, COUNT(*) FROM safe.orders WHERE status <> 'cancelled' AND paid_at >= '2026-10-02' AND paid_at < '2026-11-01' GROUP BY province ORDER BY COUNT(*) DESC LIMIT 5",
+    "expected_intent": {
+      "metrics": [
+        "订单数"
+      ],
+      "time_range": "最近30天",
+      "dimensions": [
+        "orders.province"
+      ],
+      "result_shape": {
+        "type": "top_n",
+        "n": 5,
+        "order": "desc"
+      }
+    }
   },
   {
     "id": "q10",
@@ -86,7 +100,16 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "上个月各商品类目的GMV是多少？",
-    "expected_sql": "SELECT c.name, ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id JOIN safe.categories c ON c.id = p.category_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY c.name ORDER BY 2 DESC"
+    "expected_sql": "SELECT c.name, ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id JOIN safe.categories c ON c.id = p.category_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY c.name ORDER BY 2 DESC",
+    "expected_intent": {
+      "metrics": [
+        "GMV"
+      ],
+      "time_range": "上个月",
+      "dimensions": [
+        "categories.name"
+      ]
+    }
   },
   {
     "id": "m02",
@@ -94,7 +117,16 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "最近30天各渠道的订单数是多少？",
-    "expected_sql": "SELECT c.name, COUNT(DISTINCT o.id) FROM safe.orders o JOIN safe.channels c ON c.id = o.channel_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-10-02' AND o.paid_at < '2026-11-01' GROUP BY c.name ORDER BY 2 DESC"
+    "expected_sql": "SELECT c.name, COUNT(DISTINCT o.id) FROM safe.orders o JOIN safe.channels c ON c.id = o.channel_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-10-02' AND o.paid_at < '2026-11-01' GROUP BY c.name ORDER BY 2 DESC",
+    "expected_intent": {
+      "metrics": [
+        "订单数"
+      ],
+      "time_range": "最近30天",
+      "dimensions": [
+        "channels.name"
+      ]
+    }
   },
   {
     "id": "m03",
@@ -134,7 +166,18 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "上个月销量最高的10个商品是哪些？",
-    "expected_sql": "SELECT p.name, SUM(oi.quantity) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY p.name ORDER BY 2 DESC LIMIT 10"
+    "expected_sql": "SELECT p.name, SUM(oi.quantity) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY p.name ORDER BY 2 DESC LIMIT 10",
+    "expected_intent": {
+      "metrics": [
+        "商品销量"
+      ],
+      "time_range": "上个月",
+      "result_shape": {
+        "type": "top_n",
+        "n": 10,
+        "order": "desc"
+      }
+    }
   },
   {
     "id": "m08",
@@ -166,7 +209,13 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "上个月的GMV是多少？",
-    "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01'"
+    "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01'",
+    "expected_intent": {
+      "metrics": [
+        "GMV"
+      ],
+      "time_range": "上个月"
+    }
   },
   {
     "id": "i02",
@@ -174,7 +223,13 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "上个月的退货率是多少？",
-    "expected_sql": "SELECT ROUND((SELECT SUM(refund_amount) FROM safe.refunds WHERE status = 'completed' AND completed_at >= '2026-09-01' AND completed_at < '2026-10-01') / (SELECT SUM(oi.quantity * oi.unit_price - oi.discount_amount) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01') * 100, 2)"
+    "expected_sql": "SELECT ROUND((SELECT SUM(refund_amount) FROM safe.refunds WHERE status = 'completed' AND completed_at >= '2026-09-01' AND completed_at < '2026-10-01') / (SELECT SUM(oi.quantity * oi.unit_price - oi.discount_amount) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01') * 100, 2)",
+    "expected_intent": {
+      "metrics": [
+        "退货率"
+      ],
+      "time_range": "上个月"
+    }
   },
   {
     "id": "i03",
@@ -182,7 +237,13 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "最近30天的ROI是多少？",
-    "expected_sql": "SELECT ROUND(SUM(attributed_gmv) / NULLIF(SUM(spend), 0), 2) FROM safe.ad_daily_stats WHERE stat_date >= '2026-10-02' AND stat_date < '2026-11-01'"
+    "expected_sql": "SELECT ROUND(SUM(attributed_gmv) / NULLIF(SUM(spend), 0), 2) FROM safe.ad_daily_stats WHERE stat_date >= '2026-10-02' AND stat_date < '2026-11-01'",
+    "expected_intent": {
+      "metrics": [
+        "ROI"
+      ],
+      "time_range": "最近30天"
+    }
   },
   {
     "id": "i04",
@@ -214,7 +275,13 @@
     "dataset": "ecommerce_demo",
     "kind": "data",
     "question": "上个月退款金额合计是多少？",
-    "expected_sql": "SELECT ROUND(SUM(refund_amount), 2) FROM safe.refunds WHERE status = 'completed' AND completed_at >= '2026-09-01' AND completed_at < '2026-10-01'"
+    "expected_sql": "SELECT ROUND(SUM(refund_amount), 2) FROM safe.refunds WHERE status = 'completed' AND completed_at >= '2026-09-01' AND completed_at < '2026-10-01'",
+    "expected_intent": {
+      "metrics": [
+        "退款金额"
+      ],
+      "time_range": "上个月"
+    }
   },
   {
     "id": "i08",
@@ -233,7 +300,13 @@
     "history": [
       "上个月GMV是多少？"
     ],
-    "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01'"
+    "expected_sql": "SELECT ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01'",
+    "expected_intent": {
+      "metrics": [
+        "GMV"
+      ],
+      "time_range": "上上个月"
+    }
   },
   {
     "id": "f02",
@@ -277,7 +350,18 @@
     "history": [
       "上个月销量最高的 10 个商品是哪些？"
     ],
-    "expected_sql": "SELECT p.name, SUM(oi.quantity) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01' GROUP BY p.id, p.name ORDER BY SUM(oi.quantity) ASC LIMIT 1"
+    "expected_sql": "SELECT p.name, SUM(oi.quantity) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.products p ON p.id = oi.product_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-08-01' AND o.paid_at < '2026-09-01' GROUP BY p.id, p.name ORDER BY SUM(oi.quantity) ASC LIMIT 1",
+    "expected_intent": {
+      "metrics": [
+        "商品销量"
+      ],
+      "time_range": "上上个月",
+      "result_shape": {
+        "type": "top_n",
+        "n": 1,
+        "order": "asc"
+      }
+    }
   },
   {
     "id": "r01",
@@ -630,7 +714,16 @@
       "上个月GMV是多少？"
     ],
     "question": "按渠道拆一下",
-    "expected_sql": "SELECT c.name, ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.channels c ON c.id = o.channel_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY c.name"
+    "expected_sql": "SELECT c.name, ROUND(SUM(oi.quantity * oi.unit_price - oi.discount_amount), 2) FROM safe.orders o JOIN safe.order_items oi ON oi.order_id = o.id JOIN safe.channels c ON c.id = o.channel_id WHERE o.status <> 'cancelled' AND o.paid_at >= '2026-09-01' AND o.paid_at < '2026-10-01' GROUP BY c.name",
+    "expected_intent": {
+      "metrics": [
+        "GMV"
+      ],
+      "time_range": "上个月",
+      "dimensions": [
+        "channels.name"
+      ]
+    }
   },
   {
     "id": "t02",
@@ -827,6 +920,12 @@
     "expect_from_previous": {
       "2026-10-02": "2026-09-01",
       "2026-11-01": "2026-10-01"
+    },
+    "expected_intent": {
+      "time_range": "上个月",
+      "filters": [
+        "直播带货"
+      ]
     }
   },
   {
@@ -870,6 +969,93 @@
     "expect_from_previous": {
       "2026-09-01": "2026-08-01",
       "2026-10-01": "2026-09-01"
+    }
+  },
+  {
+    "id": "k01",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": true,
+    "note": "指标有歧义：卖了多少可以是 GMV、销量或订单数",
+    "question": "上个月卖了多少？"
+  },
+  {
+    "id": "k02",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": true,
+    "note": "筛选值不存在：没有快手这个渠道",
+    "question": "快手渠道上个月的GMV是多少？"
+  },
+  {
+    "id": "k03",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": true,
+    "note": "没说要看什么",
+    "question": "帮我查一下上个月的数据"
+  },
+  {
+    "id": "k04",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": false,
+    "note": "没说时间：不反问，按最近 30 天统计并写明",
+    "question": "退货率是多少？",
+    "expected_intent": {
+      "metrics": [
+        "退货率"
+      ],
+      "time_range": "最近30天"
+    }
+  },
+  {
+    "id": "k05",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": false,
+    "note": "追问省略了指标：沿用上一轮的意图，不反问",
+    "turns": [
+      "上个月GMV是多少？"
+    ],
+    "question": "那上上个月呢？",
+    "expected_intent": {
+      "metrics": [
+        "GMV"
+      ],
+      "time_range": "上上个月"
+    }
+  },
+  {
+    "id": "k06",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": false,
+    "note": "和时间无关的问题：不反问，也不写按最近 30 天",
+    "question": "一共有几个渠道？"
+  },
+  {
+    "id": "k07",
+    "category": "clarify",
+    "dataset": "ecommerce_demo",
+    "kind": "behavior",
+    "expect_clarify": false,
+    "note": "回答反问：上一轮问卖了多少（应该反问），这一轮回答按金额算，合并后不再反问",
+    "turns": [
+      "上个月卖了多少？"
+    ],
+    "question": "按金额算",
+    "expected_intent": {
+      "metrics": [
+        "GMV"
+      ],
+      "time_range": "上个月"
     }
   }
 ]

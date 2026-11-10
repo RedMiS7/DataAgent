@@ -258,6 +258,34 @@ describe("buildHistory", () => {
     });
   });
 
+  it("sends a question asked back with its status and understanding", () => {
+    const asked: ChatMessage = {
+      id: "c",
+      role: "assistant",
+      state: "done",
+      thinking: startThinking(NOW),
+      answer: {
+        question: "上个月退货多少",
+        summary: "“退货”可以指几个指标，你想看哪一个？",
+        mode: "query",
+        status: "clarify",
+        sql: "",
+        results: [],
+        time_range: { label: "上个月", start: "2026-09-01", end_exclusive: "2026-10-01" },
+        intent: { text: "时间：上个月", assumptions: [],
+                  data: { route: "query", metrics: [{ term: "退货" }] } },
+        clarify: { question: "“退货”可以指几个指标，你想看哪一个？", options: ["退货率"], round: 1 },
+      } as never,
+    };
+    expect(buildHistory([user("上个月退货多少"), asked])[1]).toEqual({
+      role: "assistant",
+      content: "“退货”可以指几个指标，你想看哪一个？",
+      mode: "query",
+      status: "clarify",
+      intent: { route: "query", metrics: [{ term: "退货" }] },
+    });
+  });
+
   it("leaves out a reply that is still streaming", () => {
     const streaming: ChatMessage = {
       id: "w", role: "assistant", state: "streaming", thinking: startThinking(NOW),

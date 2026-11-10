@@ -8,7 +8,6 @@ from typing import Any
 from agentscope.agent import Agent, ReActConfig
 from agentscope.message import Msg, TextBlock
 
-from ..agent.answer import verify_summary
 from ..agent.pipeline import extract_text
 from ..agent.scope_model import build_chat_model
 from ..agent.tools import AgentRunContext, build_breakdown_toolkit, sql_policy
@@ -209,14 +208,7 @@ def _agent_summary(settings: Settings, question: str, result: AttributionResult,
     )
     reply = asyncio.run(agent.reply(
         Msg(name="user", content=[TextBlock(text=prompt)], role="user")))
-    text = extract_text(reply)
-    if not text:
-        return ""
-
-    check_rows: list[list[Any]] = [[factor.name, factor.delta, factor.share]
-                                   for factor in factors]
-    check_rows += [[result.current_rate], [result.previous_rate], [result.delta_points]]
-    return text if verify_summary(text, check_rows) else ""
+    return extract_text(reply)
 
 
 def attribute_return_rate(settings: Settings, question: str) -> AttributionResult:

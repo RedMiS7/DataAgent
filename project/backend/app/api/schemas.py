@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class TableBlock(BaseModel):
@@ -35,11 +36,14 @@ HISTORY_MAX_MESSAGES = 200
 HISTORY_MAX_CHARS = 4000
 # An analysis answer shows at most 10 queries.
 HISTORY_MAX_QUERIES = 10
+# The intent of a reply, as JSON text.
+HISTORY_MAX_INTENT_CHARS = 4000
 
 
-# How an earlier reply ended; "stopped" means the user stopped it before an answer.
+# How an earlier reply ended; "stopped" means the user stopped it before an answer,
+# "clarify" that the reply asked the user a question instead of answering.
 HistoryStatus = Literal["ok", "empty", "partial", "text", "refused", "blocked", "error",
-                        "stopped"]
+                        "stopped", "clarify"]
 
 
 class HistoryQuery(BaseModel):
@@ -62,6 +66,18 @@ class HistoryMessage(BaseModel):
     # The period the reply covered, as AnswerPayload.time_range gives it.
     time_range: dict[str, Annotated[str, Field(max_length=64)]] = Field(default_factory=dict,
                                                                          max_length=4)
+    # How the reply understood its question, as AnswerPayload.intent.data gives it. A
+    # follow-up or an answer to a clarification builds on it. It comes from the client:
+    # the model reads it as reference, and the result is checked again.
+    intent: dict[str, Any] | None = None
+
+    @field_validator("intent")
+    @classmethod
+    def _intent_fits(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and len(json.dumps(value, ensure_ascii=False)) > \
+                HISTORY_MAX_INTENT_CHARS:
+            raise ValueError("intent 太长")
+        return value
 
 
 # "direct": answered from the conversation and the metric definitions, without SQL.
@@ -110,8 +126,10 @@ class CallUsage(BaseModel):
 
 
 # "partial": some queries ran but the answer is incomplete; "error": no query result at all;
-# "text": answered without querying, e.g. a metric definition.
-AnswerStatus = Literal["ok", "empty", "partial", "text", "refused", "blocked", "error"]
+# "text": answered without querying, e.g. a metric definition; "clarify": the question
+# is ambiguous or lacks something, and the reply asks the user instead of answering.
+AnswerStatus = Literal["ok", "empty", "partial", "text", "refused", "blocked", "error",
+                       "clarify"]
 FailureKind = Literal["timeout", "sql_failed", "model_error", "no_answer", "step_failed",
                       "unexpected"]
 
@@ -122,6 +140,55 @@ class Failure(BaseModel):
     kind: FailureKind
     message: str
     suggestion: str = ""
+
+
+class Clarify(BaseModel):
+    """A question asked back to the user, with answers to pick from."""
+
+    question: str
+    options: list[str] = Field(default_factory=list)
+    # 1 for the first question asked about a user question, 2 for the second.
+    round: int = 1
+
+
+class IntentInfo(BaseModel):
+    """How the question was understood."""
+
+    # One line for the user: "时间：上个月；指标：销售额；按地区分组".
+    text: str = ""
+    # What was filled in without asking, e.g. the default period.
+    assumptions: list[str] = Field(default_factory=list)
+    # The structure; the client sends it back with the conversation.
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class Evidence(BaseModel):
+    """The query rows and columns a point rests on (plan 2.4)."""
+
+    # The query's number, as QueryResult.index and the [查询n] marks give it.
+    query: int
+    # Row numbers from 0; empty means every row. Columns by name; empty means every column.
+    rows: list[int] = Field(default_factory=list)
+    columns: list[str] = Field(default_factory=list)
+    # The cited cells, cut from the query result by the program, not written by the model.
+    table: TableBlock | None = None
+
+
+class Point(BaseModel):
+    claim: str
+    evidence: list[Evidence] = Field(default_factory=list)
+
+
+class Conclusion(BaseModel):
+    """The model's conclusion as a structure: what the text of ``summary`` is made from."""
+
+    judgement: str = ""
+    points: list[Point] = Field(default_factory=list)
+    # Analysis only.
+    advice: str = ""
+    # False when some evidence was still wrong after one rewrite: the wrong evidence is
+    # left out, and the answer shows every query instead of the cited ones.
+    checked: bool = True
 
 
 class AnswerPayload(BaseModel):
@@ -148,6 +215,12 @@ class AnswerPayload(BaseModel):
     # The steps of a planned analysis; empty otherwise.
     plan: list[PlanStepInfo] = Field(default_factory=list)
     usage: CallUsage | None = None
+    # None when the intent could not be read, and for refusals and direct answers.
+    intent: IntentInfo | None = None
+    # Set when status is "clarify".
+    clarify: Clarify | None = None
+    # None when the model wrote no readable conclusion, or none was needed.
+    conclusion: Conclusion | None = None
 
 
 class AskRequest(BaseModel):

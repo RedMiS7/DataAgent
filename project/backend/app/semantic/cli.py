@@ -228,6 +228,25 @@ def format_answer(log: dict) -> list[str]:
     if log["error_message"]:
         lines.append(f"错误：{log['error_message']}")
     lines.extend(f"警告：{warning}" for warning in log["warnings"])
+    intent = log.get("intent") or {}
+    if intent.get("text"):
+        lines.append(f"理解为：{intent['text']}")
+    lines.extend(f"假设：{item}" for item in intent.get("assumptions") or [])
+    conclusion = log.get("conclusion") or {}
+    for number, point in enumerate(conclusion.get("points") or [], start=1):
+        cited = "；".join(
+            f"查询{item['query']}"
+            + (f" 第{'、'.join(map(str, item.get('rows') or []))}行" if item.get("rows") else "")
+            + (f" 列 {'、'.join(item.get('columns') or [])}" if item.get("columns") else "")
+            for item in point.get("evidence") or [])
+        lines.append(f"要点 {number}：{point.get('claim', '')}  依据：{cited or '（无）'}")
+    if conclusion and not conclusion.get("checked", True):
+        lines.append("依据：重写一次后仍有不对的引用，已去掉，页面展示全部查询")
+    clarify = intent.get("clarify") or {}
+    if clarify.get("question"):
+        options = "、".join(clarify.get("options") or [])
+        lines.append(f"反问（第 {clarify.get('round', 1)} 轮）：{clarify['question']}"
+                     + (f"  可选：{options}" if options else ""))
     return lines
 
 

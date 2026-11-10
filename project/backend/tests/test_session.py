@@ -45,6 +45,8 @@ def test_old_databases_get_the_new_tables_and_columns_in_order() -> None:
         "ALTER TABLE query_logs ADD COLUMN warnings JSON NULL AFTER summary_source",
         "ALTER TABLE query_logs ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'web' "
         "AFTER warnings",
+        "ALTER TABLE query_logs ADD COLUMN intent JSON NULL AFTER source",
+        "ALTER TABLE query_logs ADD COLUMN conclusion JSON NULL AFTER intent",
         "ALTER TABLE call_traces ADD COLUMN error_type VARCHAR(16) NOT NULL DEFAULT '' "
         "AFTER detail",
         "ALTER TABLE call_traces ADD COLUMN input_hash CHAR(16) NOT NULL DEFAULT '' "

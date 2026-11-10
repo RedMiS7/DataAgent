@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS query_logs (
     summary_source     VARCHAR(16) NOT NULL DEFAULT '',
     warnings           JSON NULL,
     source             VARCHAR(16) NOT NULL DEFAULT 'web',
+    intent             JSON NULL,
+    conclusion         JSON NULL,
     created_at         DATETIME NOT NULL,
     KEY idx_logs_created (created_at),
     KEY idx_logs_status (status)

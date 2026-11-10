@@ -446,7 +446,7 @@ def test_every_case_has_a_dataset_a_kind_and_a_unique_id() -> None:
     assert {case["kind"] for case in groups["routing"]} == {"routing"}
     assert {case["kind"] for case in groups["dangerous_sql"]} == {"rule"}
     behavior = {case["category"] for case in groups["questions"] if case["kind"] == "behavior"}
-    assert behavior == {"refusal", "direct"}
+    assert behavior == {"refusal", "direct", "clarify"}
 
 
 def test_dabench_cases_carry_their_review() -> None:

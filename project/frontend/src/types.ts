@@ -53,9 +53,55 @@ export interface RetrievalView {
 
 /**
  * "partial": some queries ran but the answer is incomplete; "error": no query result;
- * "text": answered without querying, e.g. a metric definition.
+ * "text": answered without querying, e.g. a metric definition; "clarify": the question
+ * was ambiguous or lacked something, and the reply asks the user instead of answering.
  */
-export type AnswerStatus = "ok" | "empty" | "partial" | "text" | "refused" | "blocked" | "error";
+export type AnswerStatus =
+  | "ok" | "empty" | "partial" | "text" | "refused" | "blocked" | "error" | "clarify";
+
+/** A question asked back to the user, with answers to pick from. */
+export interface Clarify {
+  question: string;
+  options: string[];
+  /** 1 for the first question asked about a user question, 2 for the second. */
+  round: number;
+}
+
+/** The query rows and columns a point rests on. */
+export interface Evidence {
+  /** The query's number, as QueryResult.index and the [查询n] marks give it. */
+  query: number;
+  /** Row numbers from 0; empty means every row. */
+  rows: number[];
+  /** Column names; empty means every column. */
+  columns: string[];
+  /** The cited cells, cut from the query result by the backend. */
+  table: TableBlock | null;
+}
+
+export interface ConclusionPoint {
+  claim: string;
+  evidence: Evidence[];
+}
+
+/** The model's conclusion as a structure: what the answer's summary text is made from. */
+export interface Conclusion {
+  judgement: string;
+  points: ConclusionPoint[];
+  advice: string;
+  /** False when some evidence was still wrong after a rewrite and was left out. */
+  checked: boolean;
+}
+
+/** How the question was understood. */
+export interface IntentInfo {
+  /** One line for the user, e.g. "时间：上个月；指标：销售额". */
+  text: string;
+  /** What was filled in without asking, e.g. the default period. */
+  assumptions: string[];
+  /** The structure; sent back with the conversation. */
+  data: Record<string, unknown>;
+}
 
 export type FailureKind =
   | "timeout"
@@ -101,6 +147,8 @@ export interface HistoryMessage {
   queries?: HistoryQuery[];
   /** The period the reply covered, as the answer's time_range gives it. */
   time_range?: Record<string, string>;
+  /** How the reply understood its question, so a follow-up can build on it. */
+  intent?: Record<string, unknown>;
 }
 
 export interface HistoryQuery {
@@ -154,6 +202,12 @@ export interface AnswerPayload {
   usage?: CallUsage | null;
   /** Not sent by the backend yet; shown only when present. */
   model?: string;
+  /** Missing when the intent could not be read, and on answers saved before it existed. */
+  intent?: IntentInfo | null;
+  /** Set when status is "clarify". */
+  clarify?: Clarify | null;
+  /** Missing when no conclusion could be read, and on answers saved before it existed. */
+  conclusion?: Conclusion | null;
 }
 
 export type SetupStepState = "pending" | "running" | "done" | "waiting" | "skipped" | "failed";

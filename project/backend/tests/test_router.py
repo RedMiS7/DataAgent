@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 from agentscope.message import TextBlock
 from app.agent import router
-from app.agent.router import build_router_input, parse_route, route_question
+from app.agent.intent import REASON_LIMIT, IntentParseError, parse_intent
+from app.agent.router import build_router_input, route_question
 from app.agent.scope_model import ScriptedChatModel
 from app.api.schemas import HistoryMessage
 
@@ -21,8 +22,11 @@ def scripted(text: str) -> ScriptedChatModel:
     ('```json\n{"route": "query", "reason": "要数字"}\n```', ("query", "要数字")),
     ('结果：{"route": "query"}', ("query", "")),
 ])
-def test_parse_route_reads_the_json(text: str, expected: tuple[str, str]) -> None:
-    assert parse_route(text) == expected
+def test_parse_intent_reads_the_route(text: str, expected: tuple[str, str]) -> None:
+    intent = parse_intent(text)
+    assert (intent.route, intent.reason) == expected
+    # A reply with only a route has no intent to check.
+    assert intent.structured is False
 
 
 @pytest.mark.parametrize("text", [
@@ -31,9 +35,9 @@ def test_parse_route_reads_the_json(text: str, expected: tuple[str, str]) -> Non
     '{"route": "query"',
     '["query"]',
 ])
-def test_parse_route_rejects_bad_replies(text: str) -> None:
-    with pytest.raises(router.RouteParseError):
-        parse_route(text)
+def test_parse_intent_rejects_bad_replies(text: str) -> None:
+    with pytest.raises(IntentParseError):
+        parse_intent(text)
 
 
 def test_the_router_input_labels_each_reply_with_its_mode() -> None:
@@ -75,7 +79,7 @@ def test_route_question_returns_the_model_choice() -> None:
 def test_a_long_reason_is_cut() -> None:
     decision = route_question(scripted('{"route": "query", "reason": "' + "长" * 100 + '"}'),
                               "问题", [])
-    assert len(decision.reason) == router.REASON_LIMIT
+    assert len(decision.reason) == REASON_LIMIT
 
 
 def test_an_unreadable_reply_falls_back_and_logs_it(caplog: pytest.LogCaptureFixture) -> None:
@@ -83,13 +87,13 @@ def test_an_unreadable_reply_falls_back_and_logs_it(caplog: pytest.LogCaptureFix
         decision = route_question(scripted("应该是分析吧"), "问题", [], "abc123")
     assert (decision.route, decision.source) == ("query", "fallback")
     line = caplog.records[-1].getMessage()
-    assert line.startswith("[abc123] 路由结果无法解析")
+    assert line.startswith("[abc123] 意图结果两次都无法解析")
     assert "应该是分析吧" in line
 
 
 def test_a_model_error_falls_back_and_logs_the_traceback(
         monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    async def boom(model: Any, content: str) -> str:
+    async def boom(*args: Any) -> str:
         raise RuntimeError("模型不可用")
 
     monkeypatch.setattr(router, "_ask_model", boom)
@@ -112,4 +116,4 @@ def test_a_slow_model_falls_back(caplog: pytest.LogCaptureFixture) -> None:
         decision = route_question(model, "问题", [], timeout=0.05)
     assert (decision.route, decision.source) == ("query", "fallback")
     assert "超时" in decision.reason
-    assert "路由超时" in caplog.records[-1].getMessage()
+    assert "意图识别超时" in caplog.records[-1].getMessage()

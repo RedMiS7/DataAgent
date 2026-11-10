@@ -152,6 +152,7 @@ export default function ChatPage({ chat, onOpenSidebar }: Props) {
                   }}
                   onFeedback={(verdict) => feedback(item.id, verdict, item.answer?.mode === "analysis")}
                   onCopy={copy}
+                  onPick={send}
                 />
               </div>
             ),

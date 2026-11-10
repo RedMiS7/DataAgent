@@ -30,10 +30,13 @@ export function failureNotice(answer: AnswerPayload): FailureNotice | null {
   return null;
 }
 
-/** A failed answer has nothing to judge right or wrong; a refusal is not an answer. */
+/**
+ * A failed answer has nothing to judge right or wrong; a refusal or a question asked
+ * back is not an answer.
+ */
 export function canGiveFeedback(answer: AnswerPayload | undefined): boolean {
   if (!answer?.log_id) return false;
-  return !["refused", "error", "blocked"].includes(answer.status);
+  return !["refused", "error", "blocked", "clarify"].includes(answer.status);
 }
 
 /** The SQL of a failed answer is the attempt that did not run. */

@@ -13,11 +13,15 @@ import { formatNumber } from "../../lib/chart";
 import type { AssistantMessage } from "../../lib/conversations";
 import { downloadCsv } from "../../lib/csv";
 import { canGiveFeedback, failureNotice, sqlTabLabel } from "../../lib/failure";
+import { conclusionOf, evidenceLabel, evidenceSql, pointQueries } from "../../lib/conclusion";
+import { clarifyOf, understoodLine } from "../../lib/intent";
 import { groupResults } from "../../lib/plan";
 import { usageDetail, usageLabel } from "../../lib/usage";
 import { routeLabel, suggestsAnalysis } from "../../lib/modes";
 import { parseAnalysisSummary, type SummaryPart } from "../../lib/summary";
-import type { AnswerPayload, PlanStep, QueryResult, TableBlock } from "../../types";
+import type {
+  AnswerPayload, Clarify, Conclusion, Evidence, PlanStep, QueryResult, TableBlock,
+} from "../../types";
 import ChartView from "../ChartView";
 import ResultTable from "../ResultTable";
 
@@ -184,6 +188,84 @@ function AnalysisSummaryView({ text, onCite }: { text: string; onCite: (index: n
   );
 }
 
+/** The cited cells of one piece of evidence, with the SQL behind them. */
+function EvidenceBlock({ answer, evidence }: { answer: AnswerPayload; evidence: Evidence }) {
+  const sql = evidenceSql(answer, evidence);
+  return (
+    <div className="evidence">
+      <div className="evidence-label">{evidenceLabel(evidence)}</div>
+      {evidence.table && <ResultTable table={evidence.table} />}
+      {sql && (
+        <details className="evidence-sql">
+          <summary>SQL</summary>
+          <pre>{sql}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function EvidenceToggle({ answer, evidence }: { answer: AnswerPayload; evidence: Evidence[] }) {
+  const [open, setOpen] = useState(false);
+  if (!evidence.length) return null;
+  return (
+    <>
+      <button type="button" className="evidence-toggle" aria-expanded={open}
+              onClick={() => setOpen(!open)}>
+        {open ? "收起依据" : "依据"}
+      </button>
+      {open && evidence.map((item, position) => (
+        <EvidenceBlock key={position} answer={answer} evidence={item} />
+      ))}
+    </>
+  );
+}
+
+/** A conclusion with evidence: the judgement, each point with what it rests on, advice. */
+function ConclusionView({ answer, conclusion, onCite }: {
+  answer: AnswerPayload;
+  conclusion: Conclusion;
+  onCite: (index: number) => void;
+}) {
+  const analysis = answer.mode === "analysis";
+  if (!analysis) {
+    const evidence = conclusion.points.flatMap((point) => point.evidence);
+    return (
+      <>
+        <h2 className="answer-headline">{conclusion.judgement || conclusion.points[0]?.claim}</h2>
+        {evidence.length > 0 && (
+          <div className="answer-evidence"><EvidenceToggle answer={answer} evidence={evidence} /></div>
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {conclusion.judgement && <h2 className="answer-headline">{conclusion.judgement}</h2>}
+      {conclusion.points.length > 0 && (
+        <ul className="analysis-points">
+          {conclusion.points.map((point, position) => (
+            <li key={position}>
+              {point.claim}
+              {pointQueries(point).map((query) => (
+                <button type="button" className="cite" key={query} aria-label={`查看查询 ${query}`}
+                        onClick={() => onCite(query)}>
+                  查询{query}
+                </button>
+              ))}
+              <EvidenceToggle answer={answer} evidence={point.evidence} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {conclusion.advice && <p className="answer-advice">建议：{conclusion.advice}</p>}
+      {!conclusion.checked && (
+        <p className="conclusion-note">有的依据对不上查询结果，已去掉；下面列出全部查询。</p>
+      )}
+    </>
+  );
+}
+
 function ResultButtons({ results, active, onPick }: {
   results: QueryResult[];
   active: QueryResult;
@@ -238,6 +320,36 @@ function ResultSwitch({ results, plan, active, onPick }: {
   );
 }
 
+/** A question asked back: picking an option sends it as the next message. */
+function ClarifyView({ clarify, understood, onPick }: {
+  clarify: Clarify;
+  understood: string;
+  onPick?: (option: string) => void;
+}) {
+  return (
+    <div className="clarify">
+      <h2 className="answer-headline">{clarify.question}</h2>
+      {understood && <p className="answer-rewrite">{understood}</p>}
+      {clarify.options.length > 0 && (
+        <div className="clarify-options" role="group" aria-label="可选的回答">
+          {clarify.options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="clarify-option"
+              disabled={!onPick}
+              onClick={() => onPick?.(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="clarify-hint">也可以直接在下方输入。</p>
+    </div>
+  );
+}
+
 function Meta({ answer }: { answer: AnswerPayload }) {
   const range = answer.time_range;
   return (
@@ -273,13 +385,18 @@ interface Props {
   onReanalyze: () => void;
   onFeedback: (verdict: "correct" | "wrong") => void;
   onCopy: (text: string) => void;
+  /** Sends an option of a question asked back; only the latest answer offers it. */
+  onPick?: (option: string) => void;
 }
 
 export default function AnswerCard({
-  message, canRegenerate, onRegenerate, onReanalyze, onFeedback, onCopy,
+  message, canRegenerate, onRegenerate, onReanalyze, onFeedback, onCopy, onPick,
 }: Props) {
   const { answer, error, state, verdict } = message;
   const refused = answer?.status === "refused";
+  const clarify = clarifyOf(answer);
+  const understood = answer ? understoodLine(answer) : "";
+  const conclusion = answer ? conclusionOf(answer) : null;
   const analysis = answer?.mode === "analysis";
   const results = answer?.results ?? [];
   const [picked, setPicked] = useState<number | null>(null);
@@ -304,18 +421,26 @@ export default function AnswerCard({
       {answer && refused && (
         <div className="notice notice-refused"><StopOutlined /> {answer.summary}</div>
       )}
-      {answer && !refused && (
+      {answer && clarify && (
+        <ClarifyView clarify={clarify} understood={understood}
+                     onPick={canRegenerate ? onPick : undefined} />
+      )}
+      {answer && !refused && !clarify && (
         <>
           <FailureView answer={answer} />
           {answer.summary && (answer.status === "text" ? (
             // Answered without querying: a definition or a rewrite, often several lines.
             <p className="answer-text">{answer.summary}</p>
+          ) : conclusion ? (
+            <ConclusionView answer={answer} conclusion={conclusion} onCite={cite} />
           ) : analysis ? (
             <AnalysisSummaryView text={answer.summary} onCite={cite} />
           ) : (
             <h2 className="answer-headline">{answer.summary}</h2>
           ))}
-          {answer.rewritten_question && answer.rewritten_question !== answer.question && (
+          {understood ? (
+            <p className="answer-rewrite">{understood}</p>
+          ) : answer.rewritten_question && answer.rewritten_question !== answer.question && (
             <p className="answer-rewrite">理解为：{answer.rewritten_question}</p>
           )}
           <Meta answer={answer} />

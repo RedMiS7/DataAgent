@@ -1,4 +1,5 @@
 import type { AnswerPayload, HistoryMessage, HistoryQuery } from "../types";
+import { historyIntent } from "./intent";
 import type { AskMode } from "./modes";
 import type { Thinking } from "./reasoning";
 
@@ -188,6 +189,8 @@ function replyHistory(message: AssistantMessage): HistoryMessage | null {
       reply.queries = queries;
       reply.time_range = timeRange(answer);
     }
+    const intent = historyIntent(answer);
+    if (intent) reply.intent = intent;
     return reply;
   }
   if (message.state === "error") {

@@ -24,9 +24,11 @@ from unittest import mock
 from sqlalchemy import text
 
 from ..agent import planner, session, tools
-from ..agent.pipeline import AskPipeline
-from ..agent.router import route_question
+from ..agent.intent import intent_from_dict, previous_intent
+from ..agent.pipeline import AskPipeline, load_catalog
+from ..agent.router import catalog_note, question_note, route_question
 from ..agent.scope_model import build_chat_model
+from ..agent.sql_intent import BLOCK_PREFIX, WARNING_PREFIX
 from ..analysis import attribute_return_rate
 from ..api.schemas import AnswerPayload, HistoryMessage, HistoryQuery
 from ..config import PROJECT_DIR, Settings
@@ -44,6 +46,12 @@ DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 UNSEEN_PREFIX = tools.UNSEEN_TABLE_MESSAGE.split("{tables}")[0]
 
 NO_BASIS = "没有判分依据"
+# A case that should be asked back but was answered, and one asked back but should not be.
+MISSED_CLARIFY = "该反问没反问"
+EXTRA_CLARIFY = "不该反问却反问"
+# The intent fields a case can expect, in the order they are reported.
+INTENT_FIELDS = ("route", "metrics", "time_range", "comparison", "dimensions", "filters",
+                 "result_shape")
 SUSPECT = "存疑题"
 
 
@@ -111,6 +119,25 @@ class CaseResult:
     rerank_hashes: list[str] = field(default_factory=list)
     # Time spent writing the answer's logs at the end.
     log_write_ms: int = 0
+    # How the question was understood, as the answer carries it; empty without an intent.
+    intent: dict[str, Any] = field(default_factory=dict)
+    # Each intent field the case expects, and whether the answer got it right.
+    intent_fields: dict[str, bool] = field(default_factory=dict)
+    # Whether the case should be asked back; None when it is not a case about asking back.
+    expect_clarify: bool | None = None
+    # Calls to read the intent: 2 when the first reply could not be read.
+    router_calls: int = 0
+    # SQL turned back for not matching the intent, and mismatches let through with a
+    # warning the second time (plan 2.3).
+    intent_blocks: int = 0
+    intent_warnings: int = 0
+    # How the conclusion was read (plan 2.4): "ok" with checked evidence, "unchecked" with
+    # wrong evidence left out after the rewrite, "raw" with no structure read, "" when the
+    # answer needed none (no query result, or a template conclusion).
+    conclusion_state: str = ""
+    points: int = 0
+    points_with_evidence: int = 0
+    rewrite_calls: int = 0
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> CaseResult:
@@ -140,6 +167,9 @@ class Activity:
     sql_hashes: list[str] = field(default_factory=list)
     embedding_hashes: list[str] = field(default_factory=list)
     rerank_hashes: list[str] = field(default_factory=list)
+    router_calls: int = 0
+    intent_blocks: int = 0
+    rewrite_calls: int = 0
 
     @classmethod
     def from_archive(cls, queries: list[dict], calls: list[dict]) -> Activity:
@@ -173,6 +203,13 @@ class Activity:
                         if item["status"] != "blocked" and item.get("sql_hash")],
             embedding_hashes=hashes("embedding"),
             rerank_hashes=hashes("rerank"),
+            router_calls=sum(item["kind"] == "model" and item.get("agent") == "router"
+                             for item in calls),
+            intent_blocks=sum(item["status"] == "blocked"
+                              and (item["error"] or "").startswith(BLOCK_PREFIX)
+                              for item in failed),
+            rewrite_calls=sum(item["kind"] == "model" and item.get("agent") == "rewrite"
+                              for item in calls),
         )
 
 
@@ -290,7 +327,87 @@ def report_metrics(cases: list[CaseResult]) -> dict[str, Any]:
         "failure_hints": dict(Counter(case.failure_hint for case in cases
                                       if not case.passed and case.failure_hint)),
         "backend": backend_metrics(cases),
+        "intent": intent_metrics(cases),
+        "conclusion": conclusion_metrics(cases),
     }
+
+
+def conclusion_metrics(cases: list[CaseResult]) -> dict[str, int]:
+    """Conclusions with evidence (plan 2.4): how each was read, rewrites and points."""
+    states = Counter(case.conclusion_state for case in cases if case.conclusion_state)
+    return {
+        "answers": sum(states.values()),
+        "ok": states["ok"],
+        "unchecked": states["unchecked"],
+        "raw": states["raw"],
+        "rewritten": sum(case.rewrite_calls > 0 for case in cases),
+        "points": sum(case.points for case in cases),
+        "points_with_evidence": sum(case.points_with_evidence for case in cases),
+    }
+
+
+def intent_metrics(cases: list[CaseResult]) -> dict[str, Any]:
+    """How well questions were understood: each expected field, and asking back."""
+    fields_right: dict[str, list[int]] = {}
+    for case in cases:
+        for name, right in case.intent_fields.items():
+            counts = fields_right.setdefault(name, [0, 0])
+            counts[0] += right
+            counts[1] += 1
+    should = [case for case in cases if case.expect_clarify]
+    should_not = [case for case in cases if not case.expect_clarify and case.router_calls]
+    read = [case for case in cases if case.router_calls]
+    return {
+        "fields": {name: {"right": fields_right[name][0], "total": fields_right[name][1]}
+                   for name in INTENT_FIELDS if name in fields_right},
+        "clarify_expected": len(should),
+        "clarify_missed": sum(case.status != "clarify" for case in should),
+        "clarify_unexpected_total": len(should_not),
+        "clarify_extra": sum(case.status == "clarify" for case in should_not),
+        "clarified": sum(case.status == "clarify" for case in cases),
+        # Questions whose intent was read, those with none to use, and those read twice.
+        "read": len(read),
+        "no_intent": sum(not case.intent for case in read),
+        "retried": sum(case.router_calls > 1 for case in read),
+        # SQL turned back for not matching the intent, in how many cases, and warnings.
+        "sql_blocked": sum(case.intent_blocks for case in cases),
+        "sql_blocked_cases": sum(case.intent_blocks > 0 for case in cases),
+        "sql_warned": sum(case.intent_warnings for case in cases),
+    }
+
+
+def _bare_field(name: str) -> str:
+    return ".".join(name.strip().lower().split(".")[-2:])
+
+
+def score_intent(answer: AnswerPayload, expected: dict[str, Any]) -> dict[str, bool]:
+    """Each expected intent field and whether the answer got it right.
+
+    ``metrics`` lists metric names, ``time_range`` the label of the period queried,
+    ``dimensions`` "table.column" fields, ``filters`` values, and ``result_shape`` the
+    keys to compare. Without an intent, every field is wrong.
+    """
+    unknown = sorted(set(expected) - set(INTENT_FIELDS))
+    if unknown:
+        raise ValueError(f"expected_intent 里有不认识的字段：{unknown}")
+    got = intent_from_dict(answer.intent.data) if answer.intent and answer.intent.data else None
+    if got is None:
+        return dict.fromkeys(expected, False)
+    shape = got.result_shape.model_dump()
+    actual: dict[str, Any] = {
+        "route": got.route == expected.get("route"),
+        "metrics": sorted({item.name or item.custom for item in got.metrics})
+        == sorted(expected.get("metrics") or []),
+        "time_range": answer.time_range.get("label") == expected.get("time_range"),
+        "comparison": got.comparison == expected.get("comparison"),
+        "dimensions": sorted(_bare_field(item.field) for item in got.dimensions)
+        == sorted(_bare_field(item) for item in expected.get("dimensions") or []),
+        "filters": sorted(item.value for item in got.filters)
+        == sorted(expected.get("filters") or []),
+        "result_shape": all(shape.get(key) == value
+                            for key, value in (expected.get("result_shape") or {}).items()),
+    }
+    return {name: actual[name] for name in expected}
 
 
 def group_name(case: CaseResult) -> str:
@@ -627,7 +744,9 @@ def reply_history(answer: AnswerPayload, with_queries: bool = True) -> HistoryMe
     time_range = {key: value[:64] for key, value in answer.time_range.items()
                   if key in ("label", "start", "end_exclusive") and value} if queries else {}
     return HistoryMessage(role="assistant", content=content[:4000], mode=answer.mode,
-                          status=answer.status, queries=queries, time_range=time_range)
+                          status=answer.status, queries=queries, time_range=time_range,
+                          intent=answer.intent.data if answer.intent and answer.intent.data
+                          else None)
 
 
 def run_turns(pipeline: AskPipeline, turns: list[str], session_id: str,
@@ -785,7 +904,27 @@ def _answer_fields(answer: AnswerPayload, activity: Activity, duration_ms: int) 
         "embedding_hashes": activity.embedding_hashes,
         "rerank_hashes": activity.rerank_hashes,
         "log_write_ms": usage.log_write_ms if usage else 0,
+        "intent": answer.intent.model_dump() if answer.intent else {},
+        "router_calls": activity.router_calls,
+        "intent_blocks": activity.intent_blocks,
+        "intent_warnings": sum(warning.startswith(WARNING_PREFIX) for warning in answer.warnings),
+        "conclusion_state": conclusion_state(answer),
+        "points": len(answer.conclusion.points) if answer.conclusion else 0,
+        "points_with_evidence": sum(bool(point.evidence) for point in answer.conclusion.points)
+        if answer.conclusion else 0,
+        "rewrite_calls": activity.rewrite_calls,
     }
+
+
+def conclusion_state(answer: AnswerPayload) -> str:
+    """How the model's conclusion over query results was read; "" when there was none."""
+    has_results = bool(answer.results or answer.table)
+    if (not has_results or answer.status not in ("ok", "empty", "partial")
+            or answer.summary_source != "model"):
+        return ""
+    if answer.conclusion is None:
+        return "raw"
+    return "ok" if answer.conclusion.checked else "unchecked"
 
 
 def _timed_ask(pipeline: AskPipeline, question: str, session_id: str, mode: str,
@@ -815,6 +954,27 @@ def ask_question(settings: Settings, pipeline: AskPipeline, question: dict, atte
     answer, duration_ms = _timed_ask(pipeline, question["question"], session_id,
                                      question.get("mode", "query"), history)
     answered = _answer_fields(answer, read_activity(answer.log_id), duration_ms)
+    if question.get("expected_intent"):
+        answered["intent_fields"] = score_intent(answer, question["expected_intent"])
+    expect_clarify = question.get("expect_clarify")
+    if expect_clarify is not None:
+        answered["expect_clarify"] = bool(expect_clarify)
+    clarified = answer.status == "clarify"
+    if expect_clarify:
+        options = "、".join(answer.clarify.options) if answer.clarify else ""
+        return CaseResult(**base, **answered, passed=clarified,
+                          detail=f"status={answer.status}" + (f"，可选：{options}" if options else ""),
+                          failure_hint="" if clarified else MISSED_CLARIFY)
+    if clarified and category not in ("refusal", "direct"):
+        return CaseResult(**base, **answered, passed=False,
+                          detail=f"status=clarify，反问：{answer.summary}",
+                          failure_hint=EXTRA_CLARIFY)
+    if category == "clarify":
+        # A case about asking back that should be answered: answering is the score.
+        answered_ok = answer.status in ("ok", "empty", "text")
+        return CaseResult(**base, **answered, passed=answered_ok,
+                          detail=f"status={answer.status}",
+                          failure_hint="" if answered_ok else f"状态为 {answer.status}")
 
     expected_sql = question.get("expected_sql", "")
     if question.get("expect_from_previous"):
@@ -891,6 +1051,11 @@ def ask_analysis(settings: Settings, pipeline: AskPipeline, question: dict, atte
     answer, duration_ms = _timed_ask(pipeline, question["question"], session_id, "analysis",
                                      history)
     answered = _answer_fields(answer, read_activity(answer.log_id), duration_ms)
+    if answer.status == "clarify":
+        return CaseResult(
+            id=question["id"], category="analysis", question=question["question"],
+            passed=False, **case_meta(question), attempt=attempt, **answered,
+            detail=f"status=clarify，反问：{answer.summary}", failure_hint=EXTRA_CLARIFY)
     passed, detail = score_analysis(answer, question)
     return CaseResult(
         id=question["id"], category="analysis", question=question["question"],
@@ -951,7 +1116,13 @@ def route_case(settings: Settings, case: dict, attempt: int = 1) -> CaseResult:
     if model is None:
         raise RuntimeError("未配置大模型，无法运行路由评测")
     history = [HistoryMessage(**item) for item in case.get("history") or []]
-    decision = route_question(model, case["question"], history, session_for(case["id"], attempt))
+    # The catalog the pipeline gives the router; no retrieval runs, so no retrieved columns.
+    with eval_app_connection(settings) as conn:
+        catalog = load_catalog(settings, conn)
+    decision = route_question(
+        model, case["question"], history, session_for(case["id"], attempt),
+        knowledge=catalog_note(catalog.metrics, catalog.schema_items),
+        details=question_note(None, previous_intent(history), settings.as_of_date.isoformat()))
     expected = case["expected_route"]
     return CaseResult(
         id=case["id"], category=case["category"], question=case["question"],
@@ -959,6 +1130,7 @@ def route_case(settings: Settings, case: dict, attempt: int = 1) -> CaseResult:
         **case_meta(case), attempt=attempt, status=decision.source,
         detail=(f"expected={expected}, got={decision.route}, "
                 f"source={decision.source}, reason={decision.reason}"),
+        intent=decision.intent.model_dump(exclude_defaults=True) if decision.intent else {},
     )
 
 

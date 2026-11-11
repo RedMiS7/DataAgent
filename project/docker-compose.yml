@@ -29,6 +29,22 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  # Caches and rate limit counts only: nothing here needs to survive a restart, so
+  # persistence is off and the least recently used keys go when memory is full.
+  redis:
+    image: redis:7.4-alpine
+    container_name: dataagent-redis
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru",
+              "--save", "", "--appendonly", "no"]
+    ports:
+      # Local only: Redis has no password here.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   app:
     build:
       context: .
@@ -45,6 +61,7 @@ services:
       MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-dataagent_app_pwd}
       MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-change_me_root}
       QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/0
       LOCAL_ENV_FILE: /config/.env.local
     ports:
       - "8000:8000"
@@ -54,6 +71,9 @@ services:
       mysql:
         condition: service_healthy
       qdrant:
+        condition: service_started
+      # Started, not healthy: the app runs without Redis, only without caching.
+      redis:
         condition: service_started
 
   # The DABench datasets, on their own databases and vector collections. Not started by
@@ -75,6 +95,7 @@ services:
       MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-dataagent_app_pwd}
       MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-change_me_root}
       QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/0
       # Keys saved on the web page of the main app are shared.
       LOCAL_ENV_FILE: /config/.env.local
       MYSQL_BUSINESS_DB: dabench
@@ -91,6 +112,9 @@ services:
       mysql:
         condition: service_healthy
       qdrant:
+        condition: service_started
+      # Started, not healthy: the app runs without Redis, only without caching.
+      redis:
         condition: service_started
 
 volumes:

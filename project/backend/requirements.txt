@@ -12,3 +12,4 @@ numpy>=1.26,<3.0
 sse-starlette>=2.1,<4.0
 cryptography>=42.0
 agentscope==2.0.11
+redis>=5.0,<6.0

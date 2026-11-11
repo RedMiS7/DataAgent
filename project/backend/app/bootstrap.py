@@ -65,7 +65,7 @@ def validate_keys(settings: Settings, llm_key: str, embedding_key: str) -> None:
             raise KeyValidationError(f"大模型 Key 验证失败：{_scrub(exc, llm_key)}") from exc
     if embedding_key:
         candidate = settings.model_copy(update={"embedding_api_key": embedding_key})
-        embedder = build_embedder(candidate)
+        embedder = build_embedder(candidate, cached=False)
         if embedder is None:
             raise KeyValidationError("向量模型配置不完整，请检查 EMBEDDING_PROVIDER")
         try:

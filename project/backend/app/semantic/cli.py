@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .. import demo_data, importer
 from ..agent import session
 from ..agent.scope_model import build_chat_model, probe_chat_model
+from ..cache import KEY_PREFIX, shared_redis
 from ..config import get_settings
 from ..db import accounts
 from ..db.engine import app_connection, business_connection
@@ -166,7 +167,7 @@ def cmd_check_models() -> int:
             print(f"LLM {model.model} 调用失败：{exc}", file=sys.stderr)
             ok = False
 
-    embedder = build_embedder(settings)
+    embedder = build_embedder(settings, cached=False)
     if embedder is None:
         print("Embedding 未配置：设置 EMBEDDING_API_KEY，"
               "或使用内置预设（EMBEDDING_PROVIDER=qwen）", file=sys.stderr)
@@ -311,12 +312,29 @@ def cmd_show_trace(log_id: int | None) -> int:
     return 0
 
 
+def cmd_clear_cache() -> int:
+    """Drop cached SQL results, vectors, rerank results and counters, e.g. after the
+    business data changed. Rate limit counts expire on their own and are kept."""
+    settings = get_settings()
+    client = shared_redis(settings)
+    if client is None:
+        print("没有配置 REDIS_URL，没有缓存可清", file=sys.stderr)
+        return 1
+    if not client.ping():
+        print(f"连不上 Redis：{settings.redis_url}", file=sys.stderr)
+        return 1
+    counts = {kind: client.clear(f"{KEY_PREFIX}{kind}:")
+              for kind in ("sql", "emb", "rerank", "stats")}
+    print(f"已清除缓存：{counts}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.semantic.cli")
     parser.add_argument("command",
                         choices=["init_semantic", "build_index", "status", "check_models",
                                  "show_trace", "import_dataset", "grant_app_user",
-                                 "grant_eval_user"])
+                                 "grant_eval_user", "clear_cache"])
     parser.add_argument("--log-id", type=int, help="show_trace 要查看的 query_logs id")
     parser.add_argument("--manifest", help="import_dataset 用的数据集清单")
     args = parser.parse_args(argv)
@@ -328,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_grant_app_user()
     if args.command == "grant_eval_user":
         return cmd_grant_eval_user()
+    if args.command == "clear_cache":
+        return cmd_clear_cache()
     if args.command == "init_semantic":
         return cmd_init_semantic()
     if args.command == "build_index":

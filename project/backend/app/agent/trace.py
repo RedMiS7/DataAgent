@@ -147,25 +147,32 @@ def _failure(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}".rstrip(": ")
 
 
+@dataclass(slots=True)
+class TimedCall:
+    # Set inside the block to note how the call went, e.g. that it came from the cache.
+    detail: str = ""
+
+
 @contextmanager
 def timed(trace: CallTrace | None, kind: CallKind, name: str, *, input_text: str = "",
-          agent: str = "backend") -> Iterator[None]:
+          agent: str = "backend") -> Iterator[TimedCall]:
     """Record the call made inside the block; a failure is recorded and raised again.
 
     Without a trace (building the index, retrieval evaluation) nothing is recorded.
     """
+    call = TimedCall()
     if trace is None:
-        yield
+        yield call
         return
     started = time.perf_counter()
     digest = text_hash(input_text) if input_text else ""
     try:
-        yield
+        yield call
     except Exception as exc:
         trace.add(agent, kind, name, started, ok=False, detail=_failure(exc),
                   error_type=error_type(exc), input_hash=digest)
         raise
-    trace.add(agent, kind, name, started, input_hash=digest)
+    trace.add(agent, kind, name, started, detail=call.detail, input_hash=digest)
 
 
 class TraceMiddleware(MiddlewareBase):

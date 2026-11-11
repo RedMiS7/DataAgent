@@ -139,8 +139,12 @@ def _database_error(exc: SQLExecutionError) -> str:
 def _traced_execute(context: AgentRunContext, safe_sql: SafeSQL,
                     settings: Settings | None = None) -> ExecutionResult:
     """Run a checked query, recording its time and any failure on the question's trace."""
-    with timed(context.trace, "sql", "execute_sql", input_text=safe_sql.sql):
-        return execute_sql(settings or context.settings, safe_sql)
+    with timed(context.trace, "sql", "execute_sql", input_text=safe_sql.sql) as call:
+        result = execute_sql(settings or context.settings, safe_sql)
+        if result.cached:
+            call.detail = "命中缓存"
+            logger.info("[%s] SQL 命中缓存", context.log_tag)
+        return result
 
 
 def describe_tables(settings: Settings, names: list[str]) -> str:

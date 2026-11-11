@@ -109,6 +109,16 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 6
     retrieval_min_score: float = 0.35
 
+    # Redis for caches and rate limiting; empty runs without it.
+    redis_url: str = ""
+    # Off: no SQL, embedding or rerank results are cached. For timing without a cache.
+    cache_enabled: bool = True
+    sql_cache_ttl_seconds: int = 3600
+    embedding_cache_ttl_seconds: int = 2592000
+    rerank_cache_ttl_seconds: int = 86400
+    # Questions per minute for each session and each client IP; 0 turns the limit off.
+    rate_limit_per_minute: int = 20
+
     sql_max_rows: int = 500
     sql_timeout_ms: int = 15000
     sql_max_retry: int = 3

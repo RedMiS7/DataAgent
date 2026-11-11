@@ -15,6 +15,7 @@ from ..agent.pipeline import AskPipeline
 from ..agent.scope_model import build_chat_model
 from ..agent.session import log_tag
 from ..bootstrap import Bootstrapper, KeyValidationError, validate_keys
+from ..cache import limit_exceeded, rate_limit_store, read_stats, shared_redis
 from ..config import SAVED_KEY_FIELDS, Settings, save_keys
 from ..datasets import SuggestedQuestion
 from ..db.engine import app_connection, business_engine, ping
@@ -84,6 +85,27 @@ def setup_retry(request: Request) -> SetupStatus:
     return bootstrapper.status()
 
 
+def _check_rate_limit(request: Request, session_id: str) -> None:
+    """Questions call the model, so each session and each client IP gets a quota."""
+    settings = _settings(request)
+    client_ip = request.client.host if request.client else ""
+    wait = limit_exceeded(rate_limit_store(settings), settings.mysql_business_db,
+                          settings.rate_limit_per_minute,
+                          {"session": session_id, "ip": client_ip})
+    if wait is not None:
+        logger.warning("[%s] 提问过于频繁，已拒绝 ip=%s", log_tag(session_id), client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail=f"提问太频繁：每分钟最多 {settings.rate_limit_per_minute} 个问题，"
+                   f"请 {wait} 秒后再试",
+            headers={"Retry-After": str(wait)})
+
+
+class CacheCounts(BaseModel):
+    hit: int
+    miss: int
+
+
 class MetaResponse(BaseModel):
     as_of_date: date
     suggested_questions: list[SuggestedQuestion]
@@ -93,12 +115,19 @@ class MetaResponse(BaseModel):
     embedding_configured: bool
     qdrant_available: bool
     business_db_available: bool
+    redis_available: bool
+    cache_enabled: bool
+    # Hits and misses of the sql, emb and rerank caches since Redis started.
+    cache_stats: dict[str, CacheCounts]
 
 
 @router.get("/meta")
 def meta(request: Request) -> MetaResponse:
     settings = _settings(request)
     dataset = settings.dataset
+    redis_client = shared_redis(settings)
+    redis_available = redis_client is not None and redis_client.ping()
+    stats = read_stats(redis_client, settings.mysql_business_db) if redis_available else {}
     return MetaResponse(
         as_of_date=settings.as_of_date,
         suggested_questions=dataset.suggested_questions if dataset else [],
@@ -108,17 +137,23 @@ def meta(request: Request) -> MetaResponse:
         embedding_configured=request.app.state.embedder is not None,
         qdrant_available=request.app.state.vector_store is not None,
         business_db_available=ping(business_engine(settings)),
+        redis_available=redis_available,
+        cache_enabled=settings.cache_enabled and redis_available,
+        cache_stats={kind: CacheCounts(**counts) for kind, counts in stats.items()},
     )
 
 
 @router.post("/ask", response_model=AnswerPayload)
 def ask(request: Request, payload: AskRequest) -> AnswerPayload:
+    _check_rate_limit(request, payload.session_id)
     return _pipeline(request).ask(payload.question, payload.session_id, mode=payload.mode,
                                   history=payload.history)
 
 
 @router.post("/ask/stream")
 async def ask_stream(request: Request, payload: AskRequest) -> EventSourceResponse:
+    # Before the stream opens, so the client gets a plain 429.
+    _check_rate_limit(request, payload.session_id)
     pipeline = _pipeline(request)
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
     loop = asyncio.get_running_loop()

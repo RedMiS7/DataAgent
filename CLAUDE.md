@@ -77,6 +77,8 @@ DataAgent 是面向小电商卖家和个体经营者的经营数据助手。用�
 - 前端测试：`cd project/frontend && npm test`
 - 前端构建：`cd project/frontend && npm run build`
 - 模型连通检查：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli check_models`
+- Redis：compose 里的 `redis` 服务缓存 SQL 结果、向量和重排结果，并给 `/ask`、`/ask/stream` 限流（`RATE_LIMIT_PER_MINUTE`，默认每分钟 20 次）。`REDIS_URL` 留空就不用 Redis；Redis 挂了问答照常，只是不命中缓存。量"无缓存耗时"时设 `CACHE_ENABLED=false`。`/api/meta` 里能看到 `redis_available` 和各类缓存的命中数
+- 清缓存（业务数据变了之后用，需要 `REDIS_URL`）：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli clear_cache`
 - 重建向量索引：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli build_index`
 - 查看一次问答的结论、每条查询（含被拦下和失败的）、模型和工具调用：`cd project/backend && PYTHONPATH=. ../../.venv/bin/python -m app.semantic.cli show_trace --log-id <query_logs 的 id>`
 - 评测（在容器里跑，用实例保存的模型 key 和配置，不用挂目录）：`cd project && docker compose exec app python -m app.evaluation run --mode all --repeat 3 --concurrency 4`。每题跑完立刻写入应用库的 `eval_runs`、`eval_case_results`；同一实例同时只能跑一个评测；按 `MYSQL_BUSINESS_DB` 只跑对应数据集的题，分数按"数据集/题型"分组，没有总分；`review.status=suspect` 和没有判分依据（没有参考 SQL 也没有 `facts`）的题照常运行但不计分。`--repeat N` 输出每组 N 次的平均、最低、最高和每次都通过的比例；`--concurrency` 默认 4。DABench 实例把 `app` 换成 `app-dabench`

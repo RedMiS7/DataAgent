@@ -48,8 +48,11 @@
 - `cd project && ../.venv/bin/ruff check backend eval data`：All checks passed。
 - `clear_cache`：没配置 `REDIS_URL` 时提示"没有配置 REDIS_URL"；Redis 连不上时提示"连不上 Redis"。两种情况都以返回码 1 退出。
 
-**没有验证**：本机 Docker 没在运行，也没装 Redis，所以以下几项都还没跑过：
-- 用 `docker compose up -d --build` 启动后，`/api/meta` 显示 `redis_available: true`。
-- 同一个问题连问两次，第二次命中缓存。
-- 停掉 redis 后问答照常。
-- 按 `CACHE_ENABLED=false/true` 做评测，对比耗时和正确率。
+集成验证（`cd project && docker compose up -d --build`，真实 Redis、MySQL、Qdrant、DeepSeek 和百炼）：
+
+- 启动后 `/api/meta` 返回 `redis_available: true`、`cache_enabled: true`。
+- "上个月GMV是多少"用两个新会话各问一次：两次的 SQL 和数字相同。第二次 `cache_stats` 为 sql 命中 1、未命中 1，emb 命中 3、未命中 2，rerank 命中 1、未命中 1，日志出现"SQL 命中缓存"。`show_trace` 里第二次的 sql 调用标注"命中缓存"，后端调用合计从 retrieval 1.5s + embedding 1.4s + rerank 2.3s + sql 0.1s 降到大约 0.1s。整题耗时从 11s 降到 8s，剩下的主要是大模型调用。
+- 限流：在 Redis 里把当前 IP 本分钟的计数设为 20，再请求 `/api/ask` 和 `/api/ask/stream`，都返回 429，带中文提示和 `retry-after`；流式接口返回的是 `application/json`，没有打开 SSE。日志出现"提问过于频繁，已拒绝"。没有真的连发 21 个问题，以免多调用 20 次大模型。
+- `docker compose stop redis` 后提问，问答正常返回（status ok，14s）。日志只出现一条"Redis 计数失败……30 秒内不再尝试"，`/api/meta` 显示 `redis_available: false`。`docker compose start redis` 后，`/api/meta` 恢复为 `true`；因为没有持久化，统计数从 0 重新开始。
+
+**没有验证**：没有按 `CACHE_ENABLED=false/true` 做评测，对比耗时和正确率。
